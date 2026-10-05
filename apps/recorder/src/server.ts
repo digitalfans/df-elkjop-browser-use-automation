@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { config } from './config.ts';
 import { HttpError, badRequest } from './errors.ts';
-import { recordingState, start, stop } from './recording.ts';
+import { assertNotRecorded, recordingState, start, stop } from './recording.ts';
 import { createOrOpenTicket } from './tickets.ts';
-import { createProfile, listProfiles } from './work-profiles.ts';
+import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
 type Body = Record<string, string | undefined>;
 type Route = (body: Body) => unknown;
@@ -19,6 +19,11 @@ const routes: Record<string, Route> = {
   'GET /api/state': () => ({ ...recordingState(), recordingsDir: config.recordingsDir, profilesDir: config.profilesDir }),
   'GET /api/profiles': () => listProfiles(),
   'POST /api/profiles': (body) => createProfile(trimmed(body.name)),
+  'POST /api/profiles/open': (body) => openProfile(body.name),
+  'POST /api/profiles/close': (body) => {
+    assertNotRecorded(body.name);
+    return closeProfile(body.name);
+  },
   'POST /api/tickets': (body) => createOrOpenTicket(trimmed(body.ticket)),
   'POST /api/start': (body) => start(body.ticket, body.profile),
   'POST /api/stop': () => stop(),

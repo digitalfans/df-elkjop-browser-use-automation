@@ -37,6 +37,12 @@ type Session = {
 
 let status: 'idle' | 'starting' | 'recording' | 'finishing' = 'idle';
 let session: Session | null = null;
+let attached: string | null = null; // Work Profile in use from the moment start begins until finished
+
+// The Work Profile being recorded cannot be closed: that would break the Recording Session.
+export function assertNotRecorded(profileName: string | undefined) {
+  if (attached && attached === profileName) throw conflict(`${attached} is being recorded: finish the Recording Session first`);
+}
 
 export function recordingState() {
   return {
@@ -123,6 +129,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
   const t = readTicket(ticketId ?? '');
   const profile = getProfile(profileName ?? '');
   status = 'starting';
+  attached = profile.name;
   let browser: Browser | undefined;
   try {
     if (!(await isOpen(profile.port))) throw conflict(`Work Profile ${profile.name} is not open`);
@@ -153,6 +160,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
   } catch (err) {
     await browser?.close().catch(() => {});
     session = null;
+    attached = null;
     status = 'idle';
     throw err;
   }
@@ -184,6 +192,7 @@ export async function stop() {
     writeTicket(t);
   } finally {
     session = null;
+    attached = null;
     status = 'idle';
   }
 }

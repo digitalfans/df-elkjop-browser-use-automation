@@ -69,6 +69,9 @@ export async function startRecorder(): Promise<Recorder> {
       PROFILES_DIR: profilesDir,
       // Away from 9222, where a real Work Profile may be open on this Mac.
       FIRST_CDP_PORT: String(await freePort()),
+      // Work Profiles opened from the API run headless here; for the Copywriter they are normal windows.
+      CHROME_PATH: CHROME,
+      CHROME_ARGS: '--headless=new',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -110,11 +113,39 @@ export async function startRecorder(): Promise<Recorder> {
     },
     ticketJson: (ticket) => JSON.parse(fs.readFileSync(ticketFile(ticket, 'ticket.json'), 'utf8')),
     close: async () => {
+      // Work Profiles the server opened outlive it, like the Copywriter's Chromes; quit them first.
+      const left = await api('GET', '/api/profiles').catch(() => null);
+      for (const p of left?.body ?? []) {
+        if (!p.open) continue;
+        await api('POST', '/api/profiles/close', { name: p.name }).catch(() => {});
+        const pid = chromePid(p.dir);
+        if (pid && isAlive(pid)) process.kill(pid, 'SIGKILL');
+      }
       child.kill();
       await exited(child);
       await rm(root, { recursive: true, force: true });
     },
   };
+}
+
+// The process a Chrome running on a user-data folder has, from the lock it holds there
+// (`SingletonLock` -> `<host>-<pid>`), or null when no Chrome holds it.
+export function chromePid(dir: string): number | null {
+  try {
+    const pid = Number(fs.readlinkSync(path.join(dir, 'SingletonLock')).split('-').at(-1));
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type Chrome = { browser: Browser; context: BrowserContext; close: () => Promise<void> };
@@ -138,4 +169,10 @@ export async function launchChrome(profile: { dir: string; port: number }): Prom
       await exited(child);
     },
   };
+}
+
+// Drives a Work Profile the server opened, through its own CDP connection, like the Copywriter by hand.
+export async function connectChrome(profile: { port: number }) {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
+  return { browser, context: browser.contexts()[0], close: () => browser.close().catch(() => {}) };
 }

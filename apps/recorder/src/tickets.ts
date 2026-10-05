@@ -28,15 +28,21 @@ export function writeTicket(t: Ticket) {
   fs.writeFileSync(path.join(ticketDir(t.ticket), 'ticket.json'), JSON.stringify(t, null, 2));
 }
 
+// The Work Profile the Ticket was last recorded with, which the picker offers first.
+const lastProfile = (t: Ticket) => t.sessions.at(-1)?.profile ?? null;
+
 // Typing an existing Ticket ID opens that Ticket instead of creating a duplicate.
 export function createOrOpenTicket(id: string | undefined) {
   if (!id || !/^[A-Za-z0-9][\w-]*$/.test(id)) throw badRequest('Ticket ID: letters, numbers, - and _ only (e.g. PM-32803)');
-  if (fs.existsSync(path.join(ticketDir(id), 'ticket.json'))) return { ...readTicket(id), existed: true };
+  if (fs.existsSync(path.join(ticketDir(id), 'ticket.json'))) {
+    const t = readTicket(id);
+    return { ...t, lastProfile: lastProfile(t), existed: true };
+  }
   fs.mkdirSync(ticketDir(id), { recursive: true });
   const now = new Date().toISOString();
   const t: Ticket = { ticket: id, briefing: null, createdAt: now, updatedAt: now, sessions: [] };
   writeTicket(t);
-  return { ...t, existed: false };
+  return { ...t, lastProfile: null, existed: false };
 }
 
 export function readTimeline(id: string): Event[] {

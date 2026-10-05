@@ -24,11 +24,16 @@
 
 <section>
   <h2>Work Profiles</h2>
-  <div class="muted">Dedicated Chromes for Elkjøp work. Only open ones can be recorded.</div>
+  <div class="muted">Dedicated Chromes for Elkjøp work. Open one and log in to Jira, SharePoint, Coremedia… once, by hand; it stays logged in. Only open ones can be recorded.</div>
   <table>
-    <thead><tr><th>Work Profile</th><th>Port</th><th>Status</th></tr></thead>
+    <thead><tr><th>Work Profile</th><th>Port</th><th>Status</th><th></th></tr></thead>
     <tbody id="profiles"></tbody>
   </table>
+  <div class="row">
+    <input id="new-profile" placeholder="elkjop">
+    <button id="create-profile">Create Work Profile</button>
+    <span id="profile-notice" class="notice"></span>
+  </div>
 </section>
 
 <section>
@@ -70,6 +75,7 @@ const api = async (method, url, body) => {
 const flash = (id, msg) => { $(id).textContent = msg; setTimeout(() => ($(id).textContent = ''), 4000); };
 
 let ticket = null;   // Ticket open in the panel
+let lastProfile = null; // Work Profile that Ticket was last recorded with
 let rec = {};        // latest /api/state
 let profiles = [];
 let chosenProfile = null;
@@ -85,18 +91,28 @@ function render() {
   const recording = rec.status !== 'idle';
   if (recording && rec.ticket) ticket = rec.ticket;
 
-  $('profiles').innerHTML = profiles.map((p) => `<tr>
-      <td><b>${esc(p.name)}</b>${recording && rec.profile === p.name ? ' <span class="rec">● REC</span>' : ''}<div class="muted">${esc(p.dir)}</div></td>
+  $('profiles').innerHTML = profiles.map((p) => {
+    const busy = recording && rec.profile === p.name;
+    return `<tr>
+      <td><b>${esc(p.name)}</b>${busy ? ' <span class="rec">● REC</span>' : ''}<div class="muted">${esc(p.dir)}</div></td>
       <td>${p.port}</td>
-      <td>${p.open ? '<span class="ok">open</span>' : '<span class="muted">closed</span>'}</td></tr>`).join('')
-    || '<tr><td colspan="3" class="muted">No Work Profiles yet.</td></tr>';
+      <td>${p.open ? '<span class="ok">open</span>' : '<span class="muted">closed</span>'}</td>
+      <td style="white-space:nowrap">
+        <button data-pact="open" data-name="${esc(p.name)}" ${p.open ? 'disabled' : ''}>Open</button>
+        <button data-pact="close" data-name="${esc(p.name)}" ${!p.open || busy ? 'disabled' : ''}
+          title="${busy ? 'Being recorded: finish the Recording Session first' : 'Quits this Chrome; logins are saved'}">Close</button>
+      </td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No Work Profiles yet.</td></tr>';
 
   $('open-ticket').disabled = recording;
   $('record-row').hidden = !ticket;
   $('ticket-label').textContent = ticket ?? '';
   const open = profiles.filter((p) => p.open);
   if (recording) chosenProfile = rec.profile;
-  else if (!open.some((p) => p.name === chosenProfile)) chosenProfile = open[0]?.name ?? null;
+  // Default to the one last used for this Ticket, while it is open; otherwise the first open one.
+  else if (!open.some((p) => p.name === chosenProfile)) {
+    chosenProfile = open.some((p) => p.name === lastProfile) ? lastProfile : open[0]?.name ?? null;
+  }
   $('profile-select').innerHTML = open.length
     ? open.map((p) => `<option ${p.name === chosenProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')
     : '<option>Open a Work Profile first</option>';
@@ -121,6 +137,8 @@ $('open-ticket').onclick = async () => {
   if (!id) return;
   const t = await api('POST', '/api/tickets', { ticket: id });
   ticket = t.ticket;
+  lastProfile = t.lastProfile;
+  chosenProfile = null;
   $('ticket-id').value = '';
   flash('ticket-notice', t.existed ? `${t.ticket} already exists, opened it.` : `${t.ticket} created.`);
   refresh();
@@ -129,8 +147,30 @@ $('ticket-id').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('open-ticket').click();
 });
 $('profile-select').onchange = (e) => (chosenProfile = e.target.value);
+$('profiles').onclick = async (e) => {
+  const b = e.target.closest('button[data-pact]');
+  if (!b) return;
+  b.disabled = true;
+  b.textContent = b.dataset.pact === 'open' ? 'Opening…' : 'Closing…';
+  await api('POST', `/api/profiles/${b.dataset.pact}`, { name: b.dataset.name }).catch(() => {});
+  refresh();
+};
+$('create-profile').onclick = async () => {
+  const name = $('new-profile').value.trim();
+  if (!name) return;
+  await api('POST', '/api/profiles', { name });
+  $('new-profile').value = '';
+  flash('profile-notice', `${name} created. Open it and log in to the Elkjøp tools once.`);
+  refresh();
+};
+$('new-profile').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('create-profile').click();
+});
 $('start').onclick = () => api('POST', '/api/start', { ticket, profile: chosenProfile }).then(refresh);
-$('stop').onclick = () => api('POST', '/api/stop').then(refresh);
+$('stop').onclick = () => api('POST', '/api/stop').then(() => {
+  lastProfile = rec.profile;
+  refresh();
+});
 
 refresh();
 setInterval(refresh, 1000);

@@ -19,7 +19,10 @@ Data lives outside the app folder:
 | `RECORDINGS_DIR` | `~/elkjop-recordings`   | One folder per Ticket                        |
 | `PROFILES_DIR`   | `~/playwright-profiles` | Work Profiles (shared with the prototype)    |
 | `FIRST_CDP_PORT` | `9222`                  | First debugging port given to a Work Profile |
-| `CHROME_PATH`    | Google Chrome in `/Applications` | Chrome the tests launch             |
+| `CHROME_PATH`    | Google Chrome in `/Applications` | Chrome a Work Profile opens in      |
+| `CHROME_ARGS`    | none                    | Extra Chrome flags, space separated (the tests pass `--headless=new`) |
+
+Work Profiles are managed from the page: create one by name (it gets the next free debugging port from `FIRST_CDP_PORT` up), open it as a normal Chrome window, close it as a regular quit (CDP `Browser.close`, so logins are saved). Several can be open at once. The one being recorded cannot be closed. The picker next to Start recording lists only open Work Profiles and defaults to the one last used for the Ticket; each Recording Session summary names its Work Profile.
 
 Each Ticket folder holds `ticket.json` (Ticket, Briefing, Recording Session summaries), `timeline.jsonl`, one event per line, appended the moment it is recorded, `screenshots/` (one shortly after each meaningful event, named in the event) and `traces/session-<n>.zip`, the Playwright trace of each Recording Session (open with `npx playwright show-trace`).
 
