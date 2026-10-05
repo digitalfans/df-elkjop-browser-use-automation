@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Recorder (prototype)</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #1d1d1f; }
+  h1 { font-size: 18px; } h2 { font-size: 15px; margin: 0 0 8px; } .tag { background: #fde68a; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid #888; background: #fff; cursor: pointer; }
+  button.primary { background: #c00; color: #fff; border-color: #c00; } button.danger { color: #c00; border-color: #e5a0a0; }
+  button:disabled { opacity: .4; cursor: default; }
+  input { font: inherit; padding: 6px; width: 200px; }
+  textarea { font: inherit; padding: 6px; width: 100%; box-sizing: border-box; min-height: 120px; margin: 6px 0; }
+  .ok { color: #080; } .bad { color: #c00; } .muted { color: #777; font-size: 12px; } .notice { color: #a16207; margin-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; } td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr.selected td { background: #fff7e6; } .rec { color: #c00; font-weight: 600; }
+  code { font-size: 12px; } pre { background: #f6f6f6; padding: 8px; font-size: 12px; overflow: auto; }
+  #open-ticket[hidden] { display: none; }
+  .annotate { margin-top: 12px; padding: 10px 12px; background: #f7f7fb; border-radius: 6px; }
+  .annotate textarea { min-height: 60px; }
+  .current-step { font-weight: 600; margin-bottom: 4px; }
+  tr.ann td { font-weight: 600; } tr.ann-step td { background: #e8f0fe; } tr.ann-checkpoint td { background: #fdecea; } tr.ann-observation td { background: #fef7e0; }
+  .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  header { display: flex; align-items: baseline; gap: 16px; } header nav a { margin-right: 12px; color: #1d4ed8; cursor: pointer; text-decoration: none; } header nav a.active { font-weight: 600; text-decoration: underline; }
+  .check { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eee; } .check .icon { font-size: 18px; width: 24px; }
+  .check .label { font-weight: 600; } .check .detail { color: #555; font-size: 13px; margin: 2px 0 6px; white-space: pre-wrap; }
+  .banner { padding: 10px 14px; border-radius: 6px; margin: 8px 0; } .banner.ok { background: #e7f6ec; color: #14532d; } .banner.bad { background: #fdecea; color: #7f1d1d; }
+  [hidden] { display: none !important; }
+  .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ticket recorder <span class="tag">PROTOTYPE</span></h1>
+  <nav><a id="nav-recorder">Recorder</a><a id="nav-setup">Setup</a></nav>
+</header>
+
+<div id="setup-view" hidden>
+<section>
+  <h2>Setup checklist</h2>
+  <div id="setup-banner" class="banner"></div>
+  <div class="muted">Everything the recorder needs on this Mac. Fix what is red, then check again.</div>
+  <div id="checks"></div>
+  <div style="margin-top:12px">
+    <button id="recheck">Check again</button>
+    <button id="go-recorder" class="primary" hidden>Go to recorder →</button>
+  </div>
+  <pre id="install-log" hidden></pre>
+</section>
+</div>
+
+<div id="recorder-view" hidden>
+<section>
+  <h2>Work Profiles</h2>
+  <div class="muted">Dedicated Chromes for Elkjøp work. Open one and log in to Jira, SharePoint, Coremedia… once, by hand; it stays logged in.</div>
+  <table>
+    <thead><tr><th>Profile</th><th>Port</th><th>Status</th><th></th></tr></thead>
+    <tbody id="profiles"></tbody>
+  </table>
+  <div style="margin-top:8px"><input id="new-profile" placeholder="elkjop"> <button id="create-profile">Create profile</button><span id="profile-notice" class="notice"></span></div>
+</section>
+
+<section>
+  <h2>Tickets</h2>
+  <input id="new-ticket" placeholder="PM-32803"> <button id="create">New ticket</button><span id="create-notice" class="notice"></span>
+  <table>
+    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th></th></tr></thead>
+    <tbody id="tickets"></tbody>
+  </table>
+</section>
+
+<section id="open-ticket" hidden>
+  <h2>Ticket <span id="ot-id"></span> <span id="ot-status"></span></h2>
+  <div>Briefing <span class="muted">(paste the ticket text here)</span></div>
+  <textarea id="briefing" placeholder="Please find launch page LP - … ready on EN-local…"></textarea>
+  <button id="save-briefing">Save briefing</button><span id="briefing-notice" class="notice"></span>
+  <div style="margin-top:12px"><b>Sessions</b> <span class="muted" id="sessions"></span></div>
+  <div style="margin-top:12px">
+    Profile <select id="profile-select"></select>
+    <button id="start" class="primary">● Start recording</button>
+    <button id="stop">■ Finish</button>
+    <span id="timer"></span> <span class="muted" id="tracing"></span>
+  </div>
+  <div class="annotate">
+    <div class="current-step" id="current-step"></div>
+    <div class="muted">Annotate while recording. It lands in the timeline right now, with a screenshot of the tab you were on.</div>
+    <textarea id="note" placeholder="Step: what this step is · Checkpoint: what you want to check before it continues · Observation: a decision you made from the briefing, and why"></textarea>
+    <button data-kind="step"><span class="kind kind-step">STEP</span> New step</button>
+    <button data-kind="checkpoint"><span class="kind kind-checkpoint">CHECKPOINT</span> I want to check here</button>
+    <button data-kind="observation"><span class="kind kind-observation">OBSERVATION</span> Decision / note</button>
+    <span id="note-notice" class="notice"></span>
+  </div>
+</section>
+
+<section>
+  <b>Live events</b> (<span id="count">0</span>)
+  <table><thead><tr><th>#</th><th>step</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>📷</th></tr></thead><tbody id="events"></tbody></table>
+  <b>Errors</b><pre id="errors">none</pre>
+</section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) { $('errors').textContent = data.error; throw new Error(data.error); }
+  return data;
+};
+const flash = (id, msg) => { $(id).textContent = msg; setTimeout(() => ($(id).textContent = ''), 4000); };
+const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+const mins = (a, b) => `${Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000))} min`;
+
+let selected = null;  // Ticket ID open in the panel
+let tickets = [];
+let rec = {};         // latest /api/state
+let profiles = [];
+let chosenProfile = null;
+let view = null;      // 'setup' | 'recorder'
+let setupBusy = false; // install running: don't redraw the checklist under it
+
+const CHECK_HELP = {
+  node: 'Runs the recorder. The Start Recorder launcher sets it up.',
+  playwright: 'The library that attaches to the work Chrome and records.',
+  chrome: 'The browser she works in. Install it by hand if it is missing.',
+  zip: 'Packs each Ticket into one file to send.',
+  recordings: 'Where Tickets, screenshots and traces are saved.',
+  profile: 'A dedicated Chrome for Elkjøp work. After creating it, open it and log in to the tools once.',
+};
+
+function select(id) {
+  selected = id;
+  const t = tickets.find((x) => x.ticket === id);
+  $('briefing').value = t?.briefing ?? '';  // only on select, so polling never overwrites her typing
+  render();
+}
+
+function detail(e) {
+  if (e.type === 'annotation') return `<span class="kind kind-${e.kind}">${e.kind.toUpperCase()}${e.n ? ' ' + e.n : ''}</span> ${esc(e.text)}`;
+  const loc = e.target?.locator ? `<code>${esc(e.target.locator)}</code>` : '';
+  const extra = e.type === 'navigate' ? e.url : e.key ?? (e.value !== undefined ? `= ${JSON.stringify(e.value)}` : '');
+  const text = e.text ? `“${esc(e.text.slice(0, 80))}”` : '';
+  return [loc, esc(extra), text].filter(Boolean).join(' ');
+}
+
+function render() {
+  const recording = rec.status !== 'idle';
+  if (recording && rec.ticket) selected = rec.ticket;
+
+  $('profiles').innerHTML = profiles.map((p) => {
+    const busy = recording && rec.profile === p.name;
+    return `<tr>
+      <td><b>${esc(p.name)}</b>${busy ? ' <span class="rec">● REC</span>' : ''}<div class="muted">${esc(p.dir)}</div></td>
+      <td>${p.port}</td>
+      <td>${p.open ? '<span class="ok">open</span>' : '<span class="muted">closed</span>'}</td>
+      <td style="white-space:nowrap">
+        <button data-pact="open" data-name="${esc(p.name)}" ${p.open ? 'disabled' : ''}>Open</button>
+        <button data-pact="close" data-name="${esc(p.name)}" ${!p.open || busy ? 'disabled' : ''}>Close</button>
+      </td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No profiles yet.</td></tr>';
+  $('create').disabled = recording;
+
+  $('tickets').innerHTML = tickets.map((t) => `
+    <tr class="${t.ticket === selected ? 'selected' : ''}">
+      <td><b>${esc(t.ticket)}</b>${t.recording ? ' <span class="rec">● REC</span>' : ''}</td>
+      <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
+      <td>${t.totals.sessions} sessions · ${t.totals.events} events · ${t.totals.annotations} notes</td>
+      <td>${when(t.updatedAt)}</td>
+      <td style="white-space:nowrap">
+        <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
+        <button data-act="reveal" data-id="${esc(t.ticket)}">Folder</button>
+        <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}>Delete</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">No tickets yet. Create one above.</td></tr>';
+
+  const t = tickets.find((x) => x.ticket === selected);
+  $('open-ticket').hidden = !t;
+  if (t) {
+    const mine = recording && rec.ticket === t.ticket;
+    $('ot-id').textContent = t.ticket;
+    $('ot-status').innerHTML = mine ? `<span class="rec">● recording session ${rec.session}</span>` : '';
+    $('briefing').disabled = $('save-briefing').disabled = mine;
+    $('sessions').innerHTML = t.sessions.length
+      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${s.events} events · ${s.annotations ?? 0} notes`).join('<br>')
+      : 'none yet';
+    $('start').textContent = t.sessions.length ? `● Continue recording · session ${t.sessions.length + 1}` : '● Start recording';
+    const open = profiles.filter((p) => p.open);
+    if (!open.some((p) => p.name === chosenProfile)) {
+      const last = t.sessions.at(-1)?.profile;
+      chosenProfile = open.some((p) => p.name === last) ? last : open[0]?.name ?? null;
+    }
+    if (mine) chosenProfile = rec.profile;
+    $('profile-select').innerHTML = open.length
+      ? open.map((p) => `<option ${p.name === chosenProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')
+      : '<option>Open a profile first</option>';
+    $('profile-select').disabled = recording || !open.length;
+    $('start').disabled = recording || !chosenProfile;
+    $('stop').disabled = !mine || rec.status !== 'recording';
+    $('timer').textContent = mine ? `${Math.round((Date.now() - rec.startedAt) / 1000)}s` : '';
+    $('tracing').textContent = mine && rec.tracing ? `trace: ${rec.tracing}` : '';
+    const canAnnotate = mine && rec.status === 'recording';
+    document.querySelectorAll('[data-kind]').forEach((b) => (b.disabled = !canAnnotate));
+    $('note').disabled = !canAnnotate;
+    $('current-step').textContent = !mine ? 'Start recording to annotate.'
+      : rec.step ? `Now in step ${rec.step.n}: ${rec.step.text}` : 'No step marked yet. Mark the first one with “New step”.';
+  }
+
+  $('count').textContent = rec.eventCount ?? 0;
+  $('events').innerHTML = (rec.events ?? []).slice().reverse().map((e) =>
+    `<tr class="${e.type === 'annotation' ? `ann ann-${e.kind}` : ''}"><td>${e.seq}</td><td>${e.step ?? ''}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td><td>${e.screenshot ? '✓' : ''}</td></tr>`).join('');
+  if (rec.errors?.length) $('errors').textContent = rec.errors.join('\n');
+}
+
+async function refresh() {
+  if (view !== 'recorder') return;
+  [rec, tickets, profiles] = await Promise.all([api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles')]);
+  if (selected && !tickets.some((t) => t.ticket === selected)) selected = null;
+  render();
+}
+
+async function refreshSetup() {
+  if (view !== 'setup' || setupBusy || document.activeElement?.id === 'setup-profile') return;
+  const h = await api('GET', '/api/health');
+  $('setup-banner').className = `banner ${h.healthy ? 'ok' : 'bad'}`;
+  $('setup-banner').textContent = h.healthy ? 'All set. This Mac is ready to record.' : `${h.checks.filter((c) => !c.ok).length} item(s) need attention.`;
+  $('go-recorder').hidden = !h.healthy;
+  $('checks').innerHTML = h.checks.map((c) => `
+    <div class="check">
+      <div class="icon">${c.ok ? '✅' : '❌'}</div>
+      <div>
+        <div class="label">${esc(c.label)}</div>
+        <div class="muted">${esc(CHECK_HELP[c.id] ?? '')}</div>
+        <div class="detail">${esc(c.detail)}</div>
+        ${c.action === 'install' ? '<button data-setup="install">Install Playwright</button>' : ''}
+        ${c.action === 'create-profile' ? '<input id="setup-profile" value="elkjop"> <button data-setup="create-profile">Create profile</button>' : ''}
+      </div>
+    </div>`).join('');
+  return h;
+}
+
+function show(next) {
+  view = next;
+  $('setup-view').hidden = next !== 'setup';
+  $('recorder-view').hidden = next !== 'recorder';
+  $('nav-setup').className = next === 'setup' ? 'active' : '';
+  $('nav-recorder').className = next === 'recorder' ? 'active' : '';
+  return next === 'setup' ? refreshSetup() : refresh();
+}
+
+$('checks').onclick = async (e) => {
+  const b = e.target.closest('button[data-setup]');
+  if (!b) return;
+  b.disabled = true;
+  setupBusy = true;
+  if (b.dataset.setup === 'install') {
+    b.textContent = 'Installing… (about a minute)';
+    $('install-log').hidden = false;
+    $('install-log').textContent = 'npm install…';
+    const out = await api('POST', '/api/setup/install').catch((err) => ({ log: err.message }));
+    $('install-log').textContent = out.log || 'done';
+  }
+  if (b.dataset.setup === 'create-profile') {
+    await api('POST', '/api/profiles', { name: $('setup-profile').value.trim() }).catch((err) => { $('install-log').hidden = false; $('install-log').textContent = err.message; });
+  }
+  setupBusy = false;
+  b.blur();
+  refreshSetup();
+};
+$('recheck').onclick = () => refreshSetup();
+$('go-recorder').onclick = () => show('recorder');
+$('nav-setup').onclick = () => show('setup');
+$('nav-recorder').onclick = () => show('recorder');
+
+$('profiles').onclick = async (e) => {
+  const b = e.target.closest('button[data-pact]');
+  if (!b) return;
+  b.disabled = true;
+  await api('POST', `/api/profiles/${b.dataset.pact}`, { name: b.dataset.name }).catch(() => {});
+  refresh();
+};
+$('create-profile').onclick = async () => {
+  const name = $('new-profile').value.trim();
+  if (!name) return;
+  await api('POST', '/api/profiles', { name });
+  $('new-profile').value = '';
+  flash('profile-notice', `${name} created. Open it and log in once.`);
+  refresh();
+};
+$('profile-select').onchange = (e) => (chosenProfile = e.target.value);
+
+$('tickets').onclick = async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === 'open') select(id);
+  if (b.dataset.act === 'reveal') api('POST', '/api/reveal', { ticket: id });
+  if (b.dataset.act === 'delete' && confirm(`Delete ${id} and all its recordings?\nIt will be moved to the Trash.`)) {
+    await api('POST', '/api/tickets/delete', { ticket: id });
+    if (selected === id) selected = null;
+    refresh();
+  }
+};
+
+$('create').onclick = async () => {
+  const id = $('new-ticket').value.trim();
+  if (!id) return;
+  const t = await api('POST', '/api/tickets', { ticket: id });
+  $('new-ticket').value = '';
+  if (t.existed) flash('create-notice', `${t.ticket} already exists, opened it.`);
+  await refresh();
+  select(t.ticket);
+};
+$('new-ticket').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('create').click();
+});
+
+$('save-briefing').onclick = async () => {
+  await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  flash('briefing-notice', 'Saved.');
+  refresh();
+};
+
+document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = async () => {
+  const text = $('note').value.trim();
+  if (!text) return flash('note-notice', 'Write something first.');
+  await api('POST', '/api/annotate', { kind: b.dataset.kind, text });
+  $('note').value = '';
+  flash('note-notice', `${b.dataset.kind} added.`);
+  refresh();
+}));
+
+$('start').onclick = async () => {
+  // Keep a briefing typed but not saved yet, so it isn't lost when recording locks the textarea.
+  const t = tickets.find((x) => x.ticket === selected);
+  if ($('briefing').value.trim() !== (t?.briefing ?? '')) await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  await api('POST', '/api/start', { ticket: selected, profile: chosenProfile });
+  refresh();
+};
+$('stop').onclick = () => api('POST', '/api/stop').then(refresh);
+
+// Fresh Mac → checklist first; healthy → straight to the recorder.
+api('GET', '/api/health').then((h) => show(h.healthy ? 'recorder' : 'setup'));
+setInterval(refresh, 1000);
+setInterval(refreshSetup, 3000);
+</script>
+</body>
+</html>
