@@ -1,5 +1,5 @@
-// Ticket store: one folder per Ticket with ticket.json and an append-only timeline, plus the
-// Ticket's zip next to the folder, rebuilt at every Finish and at every Export.
+// Ticket store: one folder per Ticket with ticket.json and an append-only timeline. The Ticket's zip
+// exists only in the export folder, built at Export; keeping a copy next to the folder doubled disk use.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -78,7 +78,7 @@ function summary(t: Ticket): TicketSummary {
     excerpt: (t.briefing ?? '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT),
     lastProfile: t.sessions.at(-1)?.profile ?? null,
     totals: { sessions: t.sessions.length, events: sum('events'), screenshots: sum('screenshots'), annotations: sum('annotations') },
-    size: bytes(ticketDir(t.ticket)) + bytes(zipFile(t.ticket)),
+    size: bytes(ticketDir(t.ticket)) + bytes(zipFile(t.ticket)), // the zip only exists if left by a version before 0.2.0
   };
 }
 
@@ -143,6 +143,7 @@ export function deleteTicket(id: string | undefined) {
   const t = readTicket(id);
   fs.mkdirSync(config.trashDir, { recursive: true });
   const name = trashName(t.ticket);
+  // Versions before 0.2.0 kept a zip next to the folder; it goes to the Trash with it.
   if (fs.existsSync(zipFile(t.ticket))) moveTo(zipFile(t.ticket), path.join(config.trashDir, `${name}.zip`));
   moveTo(ticketDir(t.ticket), path.join(config.trashDir, name));
 }
@@ -171,20 +172,7 @@ export async function revealTicket(id: string | undefined) {
   await exec('open', [ticketDir(t.ticket)]);
 }
 
-// The whole Ticket folder as one zip next to it, built aside and swapped in, so a reader never sees half of it.
-export async function rebuildZip(id: string) {
-  const zip = zipFile(id);
-  const partial = `${zip}.partial`;
-  fs.rmSync(partial, { force: true });
-  try {
-    await exec('/usr/bin/zip', ['-qr', partial, '.', '-x', `${TICKET}.tmp`], { cwd: ticketDir(id) });
-    fs.renameSync(partial, zip);
-  } finally {
-    fs.rmSync(partial, { force: true });
-  }
-}
-
-// Copies a freshly built zip of the Ticket into the export folder, which her SharePoint/OneDrive client
+// Builds a zip of the Ticket straight into the export folder, which her SharePoint/OneDrive client
 // syncs to the developer; the app itself never uploads anything. Each export is a new file named after
 // the Ticket and the time, so re-exports never overwrite. The caller refuses this while the Ticket records.
 export async function exportTicket(id: string | undefined) {
@@ -199,13 +187,13 @@ export async function exportTicket(id: string | undefined) {
   } catch {
     throw conflict(`The export folder ${exportDir} is not writable: choose another one`);
   }
-  await rebuildZip(t.ticket);
   const at = new Date();
   const file = exportName(exportDir, t.ticket, at);
-  // Copied under a hidden name and renamed, so the sync client never picks up half a zip.
+  // Built under a hidden name and renamed, so the sync client never picks up half a zip.
   const partial = path.join(exportDir, `.${path.basename(file)}.partial`);
+  fs.rmSync(partial, { force: true });
   try {
-    fs.copyFileSync(zipFile(t.ticket), partial);
+    await exec('/usr/bin/zip', ['-qr', partial, '.', '-x', `${TICKET}.tmp`], { cwd: ticketDir(t.ticket) });
     fs.renameSync(partial, file);
   } finally {
     fs.rmSync(partial, { force: true });

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.ts';
-import { readTicket, readTimeline, rebuildZip, repairTimeline, ticketDir, writeTicket } from './tickets.ts';
+import { readTicket, readTimeline, repairTimeline, ticketDir, writeTicket } from './tickets.ts';
 
 export type OpenSession = { ticket: string; profile: string; n: number; startedAt: string };
 // What the page tells the Copywriter about a recovered Recording Session, until she dismisses it.
@@ -49,7 +49,7 @@ export async function recoverInterrupted() {
   try {
     const open: OpenSession = JSON.parse(fs.readFileSync(markerFile(), 'utf8'));
     const t = readTicket(open.ticket);
-    // Finish may have been interrupted after the summary was written: then only the zip is missing.
+    // Finish may have been interrupted after the summary was written: then there is nothing left to do.
     if (!t.sessions.some((s) => s.n === open.n)) {
       repairTimeline(t.ticket);
       const events = readTimeline(t.ticket).filter((e) => e.session === open.n);
@@ -66,12 +66,6 @@ export async function recoverInterrupted() {
       writeTicket(t);
       notices.push({ ticket: t.ticket, session: open.n, events: events.length, finishedAt });
       writeJson(noticesFile(), notices);
-    }
-    try {
-      await rebuildZip(t.ticket);
-    } catch (err) {
-      t.sessions.find((s) => s.n === open.n)!.errors.push(`zip: ${firstLine(err)}`);
-      writeTicket(t);
     }
   } catch (err) {
     // A Ticket deleted by hand, or an unreadable marker: nothing left to recover.

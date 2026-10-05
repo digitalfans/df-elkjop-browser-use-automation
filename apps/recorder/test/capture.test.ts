@@ -1,5 +1,6 @@
 // Full semantic capture: what ends up in the timeline when the Copywriter works in her Work Profile.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -214,7 +215,7 @@ test('saves a screenshot shortly after each meaningful event, referenced from it
     ['stop', undefined, false],
   ]);
   for (const e of events.filter((x) => x.screenshot)) {
-    assert.match(e.screenshot, /^screenshots\/.+\.png$/);
+    assert.match(e.screenshot, /^screenshots\/.+\.jpg$/);
     const file = path.join(recorder.recordingsDir, 'PM-1', e.screenshot);
     assert.ok(fs.existsSync(file), `${e.screenshot} exists`);
     assert.ok(fs.statSync(file).size > 0, `${e.screenshot} is not empty`);
@@ -234,8 +235,28 @@ test('finishing a Recording Session leaves a Playwright trace for that session',
   assert.deepEqual(session.errors, []);
   const file = path.join(recorder.recordingsDir, 'PM-1', session.trace);
   assert.ok(fs.existsSync(file), 'trace file exists');
-  // A trace is a zip archive.
+  // A trace is a zip archive, without the screencast filmstrip (the per-event screenshots cover it).
   assert.equal(fs.readFileSync(file).subarray(0, 2).toString(), 'PK');
+  const entries = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }).split('\n');
+  assert.ok(!entries.some((e) => /screencast|\.jpe?g$/.test(e)), `no screencast frames: ${entries.filter((e) => /jpe?g/.test(e))}`);
+});
+
+test('screenshots are taken at 1 CSS pixel per pixel, even on a Retina screen', async () => {
+  await startRecording();
+  const page = await demoPage();
+  // Emulate a 2× display for this page, as on a Retina MacBook.
+  const cdp = await page.context().newCDPSession(page);
+  const { width, height } = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+  assert.equal(await page.evaluate(() => devicePixelRatio), 2);
+  await page.getByRole('button', { name: 'Save' }).click();
+  const click = await recorded('the click', (e) => e.type === 'click');
+  await stopRecording();
+
+  const file = path.join(recorder.recordingsDir, 'PM-1', click.screenshot);
+  assert.deepEqual([...fs.readFileSync(file).subarray(0, 3)], [0xff, 0xd8, 0xff], 'a JPEG file');
+  const shotWidth = Number(/pixelWidth: (\d+)/.exec(execFileSync('sips', ['-g', 'pixelWidth', file], { encoding: 'utf8' }))?.[1]);
+  assert.equal(shotWidth, width, 'screenshot width in CSS pixels, not device pixels');
 });
 
 test('names a <select> wrapped in its label by the label, not its option texts', async () => {

@@ -1,6 +1,5 @@
 // Ticket history, Briefing and continued Recording Sessions: what the Copywriter organizes across Tickets.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -47,7 +46,6 @@ const tickets = async () => {
   return res.body.tickets as any[];
 };
 
-const zipEntries = (zip: string) => execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' }).split('\n').filter(Boolean);
 
 test('lists Tickets from disk with their totals, newest first, across a restart', async () => {
   assert.deepEqual(await tickets(), []);
@@ -142,9 +140,7 @@ test('a second Recording Session continues the same timeline', async () => {
   };
   await record('PM-6', 'elkjop', clickSave);
   const zip = path.join(recorder.recordingsDir, 'PM-6.zip');
-  assert.ok(fs.existsSync(zip), 'the Ticket zip is built at Finish');
-  assert.ok(zipEntries(zip).includes('traces/session-1.zip'));
-  assert.ok(!zipEntries(zip).includes('traces/session-2.zip'));
+  assert.ok(!fs.existsSync(zip), 'Finish leaves no zip next to the Ticket: it is built only at Export');
   const firstShots = fs.readdirSync(path.join(recorder.recordingsDir, 'PM-6', 'screenshots'));
   const firstBytes = new Map(firstShots.map((f) => [f, fs.readFileSync(path.join(recorder.recordingsDir, 'PM-6', 'screenshots', f))]));
 
@@ -171,12 +167,7 @@ test('a second Recording Session continues the same timeline', async () => {
   for (const s of shots) assert.ok(fs.existsSync(path.join(dir, s)), s);
   for (const [f, bytes] of firstBytes) assert.deepEqual(fs.readFileSync(path.join(dir, 'screenshots', f)), bytes, `${f} untouched`);
 
-  // Rebuilt at the second Finish: it now holds the second session too.
-  const entries = zipEntries(zip);
-  assert.ok(entries.includes('traces/session-2.zip'));
-  assert.ok(entries.includes('timeline.jsonl'));
-  assert.ok(entries.includes('ticket.json'));
-  for (const s of shots) assert.ok(entries.includes(s), `${s} in the zip`);
+  assert.ok(!fs.existsSync(zip), 'still no zip after the second Finish');
 
   const listed = (await tickets()).find((t) => t.ticket === 'PM-6');
   assert.equal(listed.totals.sessions, 2);
@@ -191,7 +182,6 @@ test('deletes a Ticket to the Trash, refused while it records', async () => {
     await chrome.context.newPage();
     await waitFor('the tab', () => recorder.timeline('PM-7').some((e) => e.type === 'tab-open'));
   });
-  assert.ok(fs.existsSync(path.join(recorder.recordingsDir, 'PM-7.zip')));
 
   assert.equal((await recorder.api('POST', '/api/start', { ticket: 'PM-8', profile: 'elkjop' })).status, 200);
   const refused = await recorder.api('POST', '/api/tickets/delete', { ticket: 'PM-8' });
@@ -210,7 +200,6 @@ test('deletes a Ticket to the Trash, refused while it records', async () => {
   assert.ok(folder, `PM-7 folder in the Trash: ${trashed}`);
   assert.ok(fs.existsSync(path.join(recorder.trashDir, folder, 'ticket.json')));
   assert.ok(fs.existsSync(path.join(recorder.trashDir, folder, 'timeline.jsonl')));
-  assert.ok(trashed.includes(`${folder}.zip`), `PM-7 zip in the Trash: ${trashed}`);
   assert.deepEqual((await tickets()).map((t) => t.ticket), ['PM-8']);
 
   assert.equal((await recorder.api('POST', '/api/tickets/delete', { ticket: 'PM-7' })).status, 404);

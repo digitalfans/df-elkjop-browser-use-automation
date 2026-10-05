@@ -183,7 +183,7 @@ test('replacing the app folder with a new version keeps Tickets, Recordings, Wor
   const session = after.ticketJson('PM-1').sessions[0];
   assert.equal(session.profile, 'elkjop');
   assert.ok(fs.existsSync(path.join(env.RECORDINGS_DIR, 'PM-1', 'traces', 'session-1.zip')));
-  assert.ok(fs.existsSync(path.join(env.RECORDINGS_DIR, 'PM-1.zip')));
+  assert.ok(!fs.existsSync(path.join(env.RECORDINGS_DIR, 'PM-1.zip')), 'no zip at Finish');
   assert.deepEqual((await after.api('GET', '/api/profiles')).body.map((p: any) => [p.name, p.port]), [['elkjop', profile.port]]);
   const settings = (await after.api('GET', '/api/settings')).body;
   assert.equal(settings.exportDir, synced);

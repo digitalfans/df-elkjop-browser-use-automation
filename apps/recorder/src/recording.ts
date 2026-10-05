@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { config } from './config.ts';
 import { badRequest, conflict } from './errors.ts';
 import type { AnnotationKind, Event, EventType } from './events.ts';
-import { appendEvent, readTicket, readTimeline, rebuildZip, ticketDir, writeTicket } from './tickets.ts';
+import { appendEvent, readTicket, readTimeline, ticketDir, writeTicket } from './tickets.ts';
 import { clearOpen, markOpen, recoveryNotices } from './recovery.ts';
 import { loadPlaywright } from './setup.ts';
 import { getProfile, isOpen } from './work-profiles.ts';
@@ -101,7 +101,7 @@ function record(page: Page | null, ev: Pick<Event, 'type'> & Partial<Event>) {
   const e: Event = { seq: s.nextSeq++, session: s.n, step: s.step?.n ?? null, t: Date.now() - s.startedAt, tab: tabId(s, page), url: page?.url(), ...ev };
   // The event names its screenshot as it is written, so it is on disk now; the shot follows shortly.
   if (page && SCREENSHOT_ON.has(e.type) && (e.type !== 'key' || e.key?.endsWith('Enter'))) {
-    e.screenshot = `screenshots/${String(e.seq).padStart(5, '0')}-${e.type}.png`;
+    e.screenshot = `screenshots/${String(e.seq).padStart(5, '0')}-${e.type}.jpg`;
     screenshot(s, page, e.seq, e.screenshot);
   }
   appendEvent(s.ticket, e);
@@ -115,7 +115,9 @@ function screenshot(s: Session, page: Page, seq: number, file: string) {
   const shot = (async () => {
     await sleep(SCREENSHOT_DELAY);
     try {
-      await page.screenshot({ path: path.join(ticketDir(s.ticket), file), timeout: 3000 });
+      // At 1 CSS pixel per pixel: on a Retina Mac a device-pixel shot has 4× the pixels for the same information.
+      // JPEG at 70: on Elgiganten pages full of product photos it is ~3.5× smaller than PNG, text still sharp.
+      await page.screenshot({ path: path.join(ticketDir(s.ticket), file), timeout: 3000, scale: 'css', type: 'jpeg', quality: 70 });
       s.screenshots++;
     } catch (err) {
       s.errors.push(`screenshot #${seq}: ${firstLine(err)}`);
@@ -171,9 +173,10 @@ export async function start(ticketId: string | undefined, profileName: string | 
     session = s;
     // From here on, a crash leaves this marker behind and the next start recovers the Recording Session.
     markOpen({ ticket: s.ticket, profile: s.profile, n: s.n, startedAt: new Date(s.startedAt).toISOString() });
-    // Background for the developer: filmstrip, DOM snapshots, network and console.
+    // Background for the developer: DOM snapshots, network and console. No screencast: it duplicated the
+    // per-event screenshots and was most of a trace's size.
     try {
-      await context.tracing.start({ screenshots: true, snapshots: true });
+      await context.tracing.start({ screenshots: false, snapshots: true });
       s.tracing = true;
     } catch (err) {
       s.errors.push(`trace: ${firstLine(err)}`);
@@ -239,13 +242,6 @@ export async function stop() {
     });
     writeTicket(t);
     clearOpen();
-    // Built after ticket.json is final, so the zip holds this Recording Session's summary too.
-    try {
-      await rebuildZip(s.ticket);
-    } catch (err) {
-      t.sessions.at(-1)!.errors.push(`zip: ${firstLine(err)}`);
-      writeTicket(t);
-    }
   } finally {
     session = null;
     attached = null;

@@ -99,7 +99,7 @@ test('an Annotation has a screenshot of the tab she was last on, once she has in
   assert.equal(before.tab, null);
   assert.equal(after.tab, click.tab);
   assert.equal(after.url, `${recorder.url}/demo`);
-  assert.match(after.screenshot, /^screenshots\/.+-annotation\.png$/);
+  assert.match(after.screenshot, /^screenshots\/.+-annotation\.jpg$/);
   const file = path.join(recorder.recordingsDir, 'PM-1', after.screenshot);
   assert.ok(fs.existsSync(file) && fs.statSync(file).size > 0, 'the screenshot is on disk');
 });

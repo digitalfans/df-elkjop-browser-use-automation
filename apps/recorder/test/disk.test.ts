@@ -34,7 +34,7 @@ async function createTicket(ticket: string) {
   assert.equal(res.status, 200, res.body.error);
 }
 
-// A Ticket with a finished Recording Session: timeline, screenshots, trace and its zip next to the folder.
+// A Ticket with a finished Recording Session: timeline, screenshots and trace.
 async function recordTicket(ticket: string) {
   const { body: profile } = await recorder.api('POST', '/api/profiles', { name: 'elkjop' });
   const chrome = await launchChrome(profile);
@@ -73,14 +73,14 @@ test('lists each Ticket with its size on disk, and the total', async () => {
 
   await recordTicket('PM-1');
   await createTicket('PM-2');
-  assert.ok(fs.existsSync(path.join(recorder.recordingsDir, 'PM-1.zip')), 'Finish left a zip');
+  assert.ok(!fs.existsSync(path.join(recorder.recordingsDir, 'PM-1.zip')), 'Finish leaves no zip');
 
   const { tickets, disk } = await listing();
   const pm1 = tickets.find((t) => t.ticket === 'PM-1');
   const pm2 = tickets.find((t) => t.ticket === 'PM-2');
-  // Each Ticket counts its folder and the zip next to it.
+  // Each Ticket counts its folder (and a zip next to it, if a version before 0.2.0 left one).
   assert.equal(pm1.size, ticketBytes('PM-1'));
-  assert.ok(pm1.size > bytes(path.join(recorder.recordingsDir, 'PM-1')), 'counts the zip');
+  assert.ok(pm1.size > 0);
   assert.equal(pm2.size, ticketBytes('PM-2'));
   assert.ok(pm2.size > 0);
   // Only Tickets count, not the settings or other files in the recordings folder.

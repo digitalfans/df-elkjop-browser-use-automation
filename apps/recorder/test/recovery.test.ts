@@ -1,6 +1,5 @@
 // Interrupted Recording Sessions: a crash, a closed Terminal or a restart never loses one.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
@@ -30,7 +29,6 @@ async function ok(method: string, route: string, body?: unknown) {
 
 const state = () => ok('GET', '/api/state');
 const zip = () => path.join(recorder.recordingsDir, 'PM-1.zip');
-const zippedTicket = () => JSON.parse(execFileSync('unzip', ['-p', zip(), 'ticket.json'], { encoding: 'utf8' }));
 const recorded = (what: string, match: (e: any) => boolean) => waitFor(what, () => recorder.timeline('PM-1').find(match));
 
 async function clickSave(page: import('playwright').Page) {
@@ -70,9 +68,7 @@ test('a Recording Session killed mid-recording is recovered on the next start, a
   assert.equal(listed.totals.events, before.length);
   assert.equal(listed.recording, false);
 
-  // The Ticket's zip is rebuilt with the recovered summary.
-  assert.ok(fs.existsSync(zip()), 'the Ticket zip is rebuilt during recovery');
-  assert.equal(zippedTicket().sessions[0].recovered, true);
+  assert.ok(!fs.existsSync(zip()), 'recovery builds no zip: it is built only at Export');
 
   // The notice stays until she dismisses it, even across another restart, and recovery runs once.
   const notice = [{ ticket: 'PM-1', session: 1, events: before.length, finishedAt: s.finishedAt }];
@@ -118,7 +114,7 @@ test('a normal Finish leaves no marker and triggers no recovery', async () => {
   await ok('POST', '/api/start', { ticket: 'PM-1', profile: 'elkjop' });
   assert.ok(fs.readdirSync(recorder.recordingsDir).length > before.length, 'starting leaves an open-session marker');
   await ok('POST', '/api/stop');
-  assert.deepEqual(fs.readdirSync(recorder.recordingsDir).sort(), [...before, 'PM-1.zip'].sort());
+  assert.deepEqual(fs.readdirSync(recorder.recordingsDir).sort(), before);
   const ticket = recorder.ticketJson('PM-1');
   assert.equal(ticket.sessions[0].recovered, undefined);
 
