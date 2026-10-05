@@ -69,20 +69,21 @@ test('records a Ticket end to end, each event on disk before the next', async ()
 
   const page = await chrome.context.newPage();
   await page.goto(`${recorder.url}/demo`);
+  await lines(3);
   const title = page.getByLabel('Page title');
   await title.click();
-  await lines(2);
+  await lines(4);
   await title.fill('RTX Spark');
   await title.blur();
-  await lines(3);
-  await page.getByLabel('Market').selectOption('SE');
-  await lines(4);
-  await page.getByRole('button', { name: 'Save' }).click();
   await lines(5);
+  await page.getByLabel('Market').selectOption('SE');
+  await lines(6);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await lines(7);
 
   const live = (await recorder.api('GET', '/api/state')).body;
-  assert.equal(live.eventCount, 5);
-  assert.deepEqual(live.events.map((e: any) => e.type), ['start', 'click', 'change', 'change', 'click']);
+  assert.equal(live.eventCount, 7);
+  assert.deepEqual(live.events.map((e: any) => e.type), ['start', 'tab-open', 'navigate', 'click', 'change', 'change', 'click']);
 
   const stopped = await recorder.api('POST', '/api/stop');
   assert.equal(stopped.status, 200, stopped.body.error);
@@ -92,11 +93,13 @@ test('records a Ticket end to end, each event on disk before the next', async ()
     events.map((e) => [e.seq, e.type, e.target?.locator, e.value]),
     [
       [1, 'start', undefined, undefined],
-      [2, 'click', "getByRole('textbox', { name: 'Page title' })", undefined],
-      [3, 'change', "getByRole('textbox', { name: 'Page title' })", 'RTX Spark'],
-      [4, 'change', "getByRole('combobox', { name: 'Market' })", 'SE'],
-      [5, 'click', "getByRole('button', { name: 'Save' })", undefined],
-      [6, 'stop', undefined, undefined],
+      [2, 'tab-open', undefined, undefined],
+      [3, 'navigate', undefined, undefined],
+      [4, 'click', "getByRole('textbox', { name: 'Page title' })", undefined],
+      [5, 'change', "getByRole('textbox', { name: 'Page title' })", 'RTX Spark'],
+      [6, 'change', "getByRole('combobox', { name: 'Market' })", 'SE'],
+      [7, 'click', "getByRole('button', { name: 'Save' })", undefined],
+      [8, 'stop', undefined, undefined],
     ],
   );
   for (const e of events) {
@@ -104,17 +107,15 @@ test('records a Ticket end to end, each event on disk before the next', async ()
     assert.equal(e.step, null);
     assert.equal(typeof e.t, 'number');
   }
-  for (const e of events.slice(1, -1)) {
-    assert.equal(e.tab, events[1].tab);
-    assert.equal(e.url, `${recorder.url}/demo`);
-  }
+  for (const e of events.slice(1, -1)) assert.equal(e.tab, events[1].tab);
+  for (const e of events.slice(2, -1)) assert.equal(e.url, `${recorder.url}/demo`);
   assert.ok(events.every((e, i) => i === 0 || e.t >= events[i - 1].t), 't never goes back');
 
   const ticket = recorder.ticketJson('PM-1');
   assert.equal(ticket.sessions.length, 1);
   assert.equal(ticket.sessions[0].n, 1);
   assert.equal(ticket.sessions[0].profile, profile.name);
-  assert.equal(ticket.sessions[0].events, 6);
+  assert.equal(ticket.sessions[0].events, 8);
   assert.equal((await recorder.api('GET', '/api/state')).body.status, 'idle');
 });
 

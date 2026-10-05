@@ -96,4 +96,41 @@
     const el = realTarget(e);
     send({ type: 'change', target: describe(el), value: valueOf(el) });
   }, true);
+
+  // Rich-text editors never fire `change`, so settle their content after a pause in typing.
+  const editTimers = new WeakMap();
+  window.addEventListener('input', (e) => {
+    const el = meaningful(realTarget(e));
+    if (!el?.isContentEditable) return;
+    clearTimeout(editTimers.get(el));
+    editTimers.set(el, setTimeout(() => send({ type: 'edit', target: describe(el), value: valueOf(el) }), 1000));
+  }, true);
+
+  // Only keys that do something beyond typing: Enter, Tab, Escape and modifier shortcuts.
+  window.addEventListener('keydown', (e) => {
+    if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
+    if (!['Enter', 'Tab', 'Escape'].includes(e.key) && !e.metaKey && !e.ctrlKey) return;
+    const key = [e.metaKey && 'Meta', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', e.key]
+      .filter(Boolean).join('+');
+    send({ type: 'key', key, target: describe(meaningful(realTarget(e))) });
+  }, true);
+
+  // getSelection() is empty for text selected inside an input or textarea, so read their own range.
+  const selected = (el) => {
+    if (typeof el?.selectionStart === 'number' && el.value !== undefined) return el.value.slice(el.selectionStart, el.selectionEnd);
+    return String(getSelection());
+  };
+  const clip = (el, text) => (sensitive(el) ? '••••••' : (text ?? '').slice(0, 2000));
+
+  for (const type of ['copy', 'cut']) {
+    window.addEventListener(type, (e) => {
+      const el = realTarget(e);
+      send({ type, text: clip(el, selected(el)), target: describe(meaningful(el)) });
+    }, true);
+  }
+
+  window.addEventListener('paste', (e) => {
+    const el = realTarget(e);
+    send({ type: 'paste', text: clip(el, e.clipboardData?.getData('text/plain')), target: describe(meaningful(el)) });
+  }, true);
 })();

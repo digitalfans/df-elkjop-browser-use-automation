@@ -5,7 +5,12 @@ import { config } from './config.ts';
 import { badRequest, notFound } from './errors.ts';
 import type { Event } from './events.ts';
 
-export type SessionSummary = { n: number; profile: string; startedAt: string; finishedAt: string; events: number };
+export type SessionSummary = {
+  n: number; profile: string; startedAt: string; finishedAt: string; events: number;
+  screenshots: number;
+  trace: string | null; // relative path of this Recording Session's Playwright trace
+  errors: string[]; // what could not be captured, e.g. a screenshot of a tab that closed
+};
 export type Ticket = { ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[] };
 
 const TIMELINE = 'timeline.jsonl';

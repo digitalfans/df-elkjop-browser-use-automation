@@ -49,7 +49,7 @@
 
 <section>
   <b>Live events</b> (<span id="count">0</span>)
-  <table><thead><tr><th>#</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th></tr></thead><tbody id="events"></tbody></table>
+  <table><thead><tr><th>#</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>screenshot</th></tr></thead><tbody id="events"></tbody></table>
   <pre id="error" hidden></pre>
 </section>
 
@@ -76,8 +76,9 @@ let chosenProfile = null;
 
 function detail(e) {
   const loc = e.target?.locator ? `<code>${esc(e.target.locator)}</code>` : '';
-  const value = e.value !== undefined ? `= ${esc(JSON.stringify(e.value))}` : '';
-  return [loc, value].filter(Boolean).join(' ');
+  const extra = e.type === 'navigate' ? e.url : e.key ?? (e.value !== undefined ? `= ${JSON.stringify(e.value)}` : '');
+  const text = e.text ? `“${esc(e.text.slice(0, 80))}”` : '';
+  return [loc, esc(extra), text].filter(Boolean).join(' ');
 }
 
 function render() {
@@ -107,7 +108,7 @@ function render() {
 
   $('count').textContent = rec.eventCount ?? 0;
   $('events').innerHTML = (rec.events ?? []).slice().reverse().map((e) =>
-    `<tr><td>${e.seq}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td></tr>`).join('');
+    `<tr><td>${e.seq}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td><td>${e.screenshot ? '✓' : ''}</td></tr>`).join('');
 }
 
 async function refresh() {
