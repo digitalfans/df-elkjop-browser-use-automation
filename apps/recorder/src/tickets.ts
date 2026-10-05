@@ -8,6 +8,7 @@ import { config } from './config.ts';
 import { badRequest, conflict, notFound } from './errors.ts';
 import type { Event } from './events.ts';
 import { readSettings } from './settings.ts';
+import { checkWorkflow } from './workflows.ts';
 
 const exec = promisify(execFile);
 
@@ -23,6 +24,7 @@ export type SessionSummary = {
 export type ExportSummary = { at: string; file: string };
 export type Ticket = {
   ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[];
+  workflow: string | null; // the kind of work it is (see workflows.ts); null on Tickets from before 0.3.0
   lastExport: ExportSummary | null;
 };
 
@@ -57,7 +59,7 @@ function checkId(id: string | undefined): string {
 export function readTicket(id: string | undefined): Ticket {
   const file = ticketFile(checkId(id));
   if (!fs.existsSync(file)) throw notFound(`Unknown Ticket ${id}`);
-  return { lastExport: null, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  return { lastExport: null, workflow: null, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
 }
 
 // Written to a temporary file and renamed, so a crash never leaves a half-written ticket.json.
@@ -70,7 +72,7 @@ export function writeTicket(t: Ticket, { touch = true } = {}) {
 }
 
 function summary(t: Ticket): TicketSummary {
-  t = { ...t, lastExport: t.lastExport ?? null };
+  t = { ...t, lastExport: t.lastExport ?? null, workflow: t.workflow ?? null };
   const sum = (k: 'events' | 'screenshots' | 'annotations') => t.sessions.reduce((n, s) => n + (s[k] ?? 0), 0);
   return {
     ...t,
@@ -118,13 +120,14 @@ export function listTickets(): TicketSummary[] {
   return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-// Typing an existing Ticket ID opens that Ticket instead of creating a duplicate.
-export function createOrOpenTicket(id: string | undefined) {
+// Typing an existing Ticket ID opens that Ticket instead of creating a duplicate, keeping its Workflow.
+export function createOrOpenTicket(id: string | undefined, workflow?: string) {
   checkId(id);
   if (fs.existsSync(ticketFile(id!))) return { ...summary(readTicket(id)), existed: true };
+  const chosen = checkWorkflow(workflow);
   fs.mkdirSync(ticketDir(id!), { recursive: true });
   const now = new Date().toISOString();
-  const t: Ticket = { ticket: id!, briefing: null, createdAt: now, updatedAt: now, sessions: [], lastExport: null };
+  const t: Ticket = { ticket: id!, briefing: null, workflow: chosen, createdAt: now, updatedAt: now, sessions: [], lastExport: null };
   writeTicket(t);
   return { ...summary(t), existed: false };
 }
@@ -133,6 +136,15 @@ export function createOrOpenTicket(id: string | undefined) {
 export function saveBriefing(id: string | undefined, briefing: string | undefined) {
   const t = readTicket(id);
   t.briefing = briefing?.trim() || null;
+  writeTicket(t);
+  return summary(t);
+}
+
+// The caller refuses this while the Ticket records.
+export function saveWorkflow(id: string | undefined, workflow: string | undefined) {
+  const t = readTicket(id);
+  if (!workflow?.trim()) throw badRequest('Choose a Workflow');
+  t.workflow = checkWorkflow(workflow);
   writeTicket(t);
   return summary(t);
 }

@@ -103,11 +103,20 @@
   <h2>Tickets</h2>
   <div class="row">
     <input id="ticket-id" placeholder="PM-32803">
+    <label>Workflow <select id="new-workflow"></select></label>
     <button id="open-ticket">Create or open</button>
     <span id="ticket-notice" class="notice"></span>
   </div>
+  <details class="muted" style="margin:4px 0 8px">
+    <summary>Add a Workflow</summary>
+    <div class="row">
+      <input id="workflow-name" placeholder="e.g. Brand page update">
+      <button id="add-workflow">Add Workflow</button>
+      <span id="workflow-notice" class="notice"></span>
+    </div>
+  </details>
   <table>
-    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th>Size</th><th></th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Workflow</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th>Size</th><th></th></tr></thead>
     <tbody id="tickets"></tbody>
   </table>
   <div class="muted" style="margin-top:6px">Recordings use <span id="disk-usage"></span> on this Mac (warning above <span id="disk-limit-usage"></span>).</div>
@@ -115,6 +124,10 @@
 
 <section id="ticket-panel" hidden>
   <h2>Ticket <span id="ticket-label"></span> <span id="ticket-status"></span></h2>
+  <div class="row">
+    <label>Workflow <select id="ticket-workflow"></select></label>
+    <span id="ticket-workflow-notice" class="notice"></span>
+  </div>
   <div>Briefing <span class="muted">(paste the Ticket's body and comments here)</span></div>
   <textarea id="briefing" placeholder="Please find launch page LP - … ready on EN-local…"></textarea>
   <div class="row">
@@ -185,6 +198,7 @@ let rec = {};        // latest /api/state
 let profiles = [];
 let chosenProfile = null;
 let settings = {};
+let workflows = [];  // latest /api/workflows, in order
 let settingsShown = false; // the export folder box is filled once, so polling never overwrites her typing
 
 function detail(e) {
@@ -235,6 +249,7 @@ function render() {
   $('tickets').innerHTML = tickets.map((t) => `
     <tr class="${t.ticket === selected ? 'selected' : ''}">
       <td><b>${esc(t.ticket)}</b>${t.recording ? ' <span class="rec">● REC</span>' : ''}</td>
+      <td>${t.workflow ? esc(t.workflow) : '<span class="muted">not set</span>'}</td>
       <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
       <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')} · ${plural(t.totals.annotations ?? 0, 'annotation')}</td>
       <td>${when(t.updatedAt)}</td>
@@ -246,7 +261,7 @@ function render() {
         <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}
           title="${t.recording ? 'Being recorded: finish the Recording Session first' : 'Moves it to the Trash'}">Delete</button>
       </td>
-    </tr>`).join('') || '<tr><td colspan="7" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
 
   $('disk-usage').textContent = size(disk.total);
   $('disk-limit-usage').textContent = $('disk-limit-label').textContent = size(disk.limit);
@@ -260,6 +275,14 @@ function render() {
     $('ticket-label').textContent = t.ticket;
     $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
     $('briefing').disabled = $('save-briefing').disabled = mine;
+    // Rebuilt only when it isn't being used, so polling never closes the menu under her.
+    if (document.activeElement !== $('ticket-workflow')) {
+      const choices = t.workflow && !workflows.includes(t.workflow) ? [...workflows, t.workflow] : workflows;
+      $('ticket-workflow').innerHTML = (t.workflow ? '' : '<option value="">Choose…</option>')
+        + choices.map((w) => `<option ${w === t.workflow ? 'selected' : ''}>${esc(w)}</option>`).join('');
+    }
+    $('ticket-workflow').disabled = mine;
+    $('ticket-workflow').title = mine ? 'Being recorded: finish the Recording Session first' : '';
     $('export').disabled = t.recording || !settings.exportDir;
     $('export').title = t.recording ? 'Being recorded: finish the Recording Session first'
       : !settings.exportDir ? 'Set an export folder in the settings first' : `Copies its zip to ${settings.exportDir}`;
@@ -297,10 +320,11 @@ function render() {
 }
 
 async function refresh() {
-  let listing;
-  [rec, listing, profiles, settings] = await Promise.all([
-    api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles'), api('GET', '/api/settings')]);
+  let listing, wf;
+  [rec, listing, profiles, settings, wf] = await Promise.all([
+    api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles'), api('GET', '/api/settings'), api('GET', '/api/workflows')]);
   ({ tickets, disk } = listing);
+  setWorkflows(wf);
   if (!settingsShown) {
     $('export-dir').value = settings.exportDir ?? '';
     $('disk-limit').value = settings.diskLimitGB;
@@ -310,12 +334,21 @@ async function refresh() {
   render();
 }
 
+// The new-Ticket picker keeps her choice across polls; it starts on the default Workflow.
+function setWorkflows(wf) {
+  const changed = wf.workflows.join('\n') !== workflows.join('\n');
+  workflows = wf.workflows;
+  if (!changed || document.activeElement === $('new-workflow')) return;
+  const keep = $('new-workflow').value || wf.default;
+  $('new-workflow').innerHTML = workflows.map((w) => `<option ${w === keep ? 'selected' : ''}>${esc(w)}</option>`).join('');
+}
+
 $('open-ticket').onclick = async () => {
   const id = $('ticket-id').value.trim();
   if (!id) return;
-  const t = await api('POST', '/api/tickets', { ticket: id });
+  const t = await api('POST', '/api/tickets', { ticket: id, workflow: $('new-workflow').value });
   $('ticket-id').value = '';
-  flash('ticket-notice', t.existed ? `${t.ticket} already exists, opened it.` : `${t.ticket} created.`);
+  flash('ticket-notice', t.existed ? `${t.ticket} already exists (${t.workflow ?? 'no Workflow'}), opened it.` : `${t.ticket} created as ${t.workflow}.`);
   await refresh();
   select(t.ticket);
 };
@@ -333,6 +366,26 @@ $('tickets').onclick = async (e) => {
     refresh();
   }
 };
+$('ticket-workflow').onchange = async () => {
+  if (!$('ticket-workflow').value) return;
+  const t = await api('POST', '/api/tickets/workflow', { ticket: selected, workflow: $('ticket-workflow').value }).catch(() => null);
+  if (t) flash('ticket-workflow-notice', `Saved as ${t.workflow}.`);
+  $('ticket-workflow').blur();
+  refresh();
+};
+$('add-workflow').onclick = async () => {
+  const name = $('workflow-name').value.trim();
+  if (!name) return;
+  const wf = await api('POST', '/api/workflows', { name }).catch(() => null);
+  if (!wf) return;
+  $('workflow-name').value = '';
+  setWorkflows(wf);
+  $('new-workflow').value = wf.workflows.at(-1);
+  flash('workflow-notice', `Added ${wf.workflows.at(-1)}.`);
+};
+$('workflow-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('add-workflow').click();
+});
 $('save-briefing').onclick = async () => {
   const t = await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
   $('briefing').value = t.briefing ?? '';

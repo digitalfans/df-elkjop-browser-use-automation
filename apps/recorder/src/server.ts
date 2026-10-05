@@ -7,7 +7,8 @@ import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket
 import { dismissRecoveryNotices, recoverInterrupted } from './recovery.ts';
 import { readSettings, saveSettings } from './settings.ts';
 import { health, installPlaywright, version } from './setup.ts';
-import { createOrOpenTicket, deleteTicket, diskUsage, exportTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
+import { createOrOpenTicket, deleteTicket, diskUsage, exportTicket, listTickets, revealTicket, saveBriefing, saveWorkflow } from './tickets.ts';
+import { addWorkflow, listWorkflows } from './workflows.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
 type Body = Record<string, string | undefined>;
@@ -33,7 +34,13 @@ const routes: Record<string, Route> = {
     const tickets = listTickets();
     return { tickets: tickets.map((t) => ({ ...t, recording: isRecordingTicket(t.ticket) })), disk: diskUsage(tickets) };
   },
-  'POST /api/tickets': (body) => createOrOpenTicket(trimmed(body.ticket)),
+  'POST /api/tickets': (body) => createOrOpenTicket(trimmed(body.ticket), body.workflow),
+  'POST /api/tickets/workflow': (body) => {
+    assertTicketNotRecorded(body.ticket);
+    return saveWorkflow(body.ticket, body.workflow);
+  },
+  'GET /api/workflows': () => listWorkflows(),
+  'POST /api/workflows': (body) => addWorkflow(body.name),
   'POST /api/tickets/briefing': (body) => {
     assertTicketNotRecorded(body.ticket);
     return saveBriefing(body.ticket, body.briefing);
