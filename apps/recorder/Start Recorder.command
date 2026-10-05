@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click to start the recorder on this Mac (the first time: right-click → Open).
+# Double-click to start the recorder on this Mac (the first time: right-click -> Open).
 # Needs nothing installed and no admin rights: if this Mac has no recent enough Node.js, it downloads
 # a private, checksum-verified copy into this folder. Keep this window open; closing it stops the recorder.
 #
@@ -47,7 +47,7 @@ else
   # Apple Silicon even when this Terminal runs under Rosetta.
   if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = "1" ]; then ARCH="arm64"; else ARCH="x64"; fi
   FILE="node-$NODE_VERSION-darwin-$ARCH.tar.gz"
-  say "Downloading Node.js $NODE_VERSION ($ARCH) into this folder…"
+  say "Downloading Node.js $NODE_VERSION ($ARCH) into this folder..."
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
   curl -fL --progress-bar "$MIRROR/$NODE_VERSION/$FILE" -o "$TMP/$FILE" \
@@ -76,7 +76,7 @@ echo "Node.js $("$NODE" --version) at $NODE"
 
 # 2. Dependencies, without any browser download: Work Profiles open in the installed Google Chrome.
 if [ ! -f node_modules/playwright/package.json ]; then
-  say "Installing Playwright (about a minute)…"
+  say "Installing Playwright (about a minute)..."
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 "$NPM" ci --omit=dev --no-audit --no-fund \
     || fail "Could not install Playwright. Check the internet connection and try again."
 fi

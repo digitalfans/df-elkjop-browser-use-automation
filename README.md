@@ -48,10 +48,10 @@ Terminal is an app that comes with every Mac. You only use it to install and to 
 
 2. Click inside the Terminal window, paste it with **⌘ Command + V** and press **Return**.
 3. Wait. The first time takes 1 to 3 minutes. You will see, in this order:
-   - `Downloading the Elkjøp Ticket Recorder…`
-   - `Installing into /Users/<you>/Elkjop Recorder…`
-   - `Downloading Node.js …` with a progress bar (only the first time, if your Mac doesn't have it)
-   - `Installing Playwright (about a minute)…`
+   - `Downloading the Elkjop Ticket Recorder...`
+   - `Installing into /Users/<you>/Elkjop Recorder...`
+   - `Downloading Node.js ...` with a progress bar (only the first time, if your Mac doesn't have it)
+   - `Installing Playwright (about a minute)...`
    - `Starting the recorder. Keep this window open; closing it stops the recorder.`
 4. If macOS asks **"Terminal would like to access files in your Desktop folder"**, click **OK** (the installer puts the recorder's icon on your Desktop).
 5. Your browser opens the recorder at **http://localhost:4317**.

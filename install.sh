@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs, or updates, the Elkjøp Ticket Recorder on this Mac. Paste into Terminal:
+# Installs, or updates, the Elkjop Ticket Recorder on this Mac. Paste into Terminal:
 #
 #   curl -fsSL https://raw.githubusercontent.com/digitalfans/df-elkjop-browser-use-automation/main/install.sh | bash
 #
@@ -9,6 +9,8 @@
 #
 # Overrides, for testing: ELKJOP_RECORDER_DIR (where to install), ELKJOP_RECORDER_ZIP (the source zip URL),
 # ELKJOP_RECORDER_NO_START=1 (install without starting). The launcher's own overrides pass through.
+# Pure ASCII on purpose: with a non-English locale (e.g. sv_SE.UTF-8) the bash 3.2 that ships with macOS
+# reads a non-ASCII character right after $VAR as part of the variable name.
 set -euo pipefail
 
 DEST="${ELKJOP_RECORDER_DIR:-$HOME/Elkjop Recorder}"
@@ -25,7 +27,7 @@ if curl -fs --max-time 2 "http://127.0.0.1:$PORT/api/state" >/dev/null 2>&1; the
   fail "The recorder is running. Finish any recording, close its Terminal window, then run this again."
 fi
 
-say "Downloading the Elkjøp Ticket Recorder…"
+say "Downloading the Elkjop Ticket Recorder..."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 curl -fL --progress-bar "$ZIP_URL" -o "$TMP/app.zip" \
@@ -34,7 +36,7 @@ unzip -q "$TMP/app.zip" -d "$TMP/src" || fail "The download is damaged. Try agai
 APP_SRC="$(find "$TMP/src" -maxdepth 3 -type d -path '*/apps/recorder' | head -n 1)"
 [ -n "$APP_SRC" ] && [ -f "$APP_SRC/Start Recorder.command" ] || fail "The download does not contain the recorder. Tell the developer."
 
-if [ -d "$DEST" ]; then say "Updating $DEST (your Tickets and Work Profiles are kept)…"; else say "Installing into $DEST…"; fi
+if [ -d "$DEST" ]; then say "Updating ${DEST} (your Tickets and Work Profiles are kept)..."; else say "Installing into ${DEST}..."; fi
 mkdir -p "$DEST"
 # The private Node.js in .runtime is kept; dependencies are reinstalled for the new version.
 rsync -a --delete --exclude '.runtime' "$APP_SRC/" "$DEST/"
@@ -43,7 +45,7 @@ chmod +x "$DEST/Start Recorder.command"
 mkdir -p "$(dirname "$SHORTCUT")"
 cat > "$SHORTCUT" <<EOF
 #!/bin/bash
-# Starts the Elkjøp Ticket Recorder. Keep the window that opens; closing it stops the recorder.
+# Starts the Elkjop Ticket Recorder. Keep the window that opens; closing it stops the recorder.
 exec "$DEST/Start Recorder.command"
 EOF
 chmod +x "$SHORTCUT"
