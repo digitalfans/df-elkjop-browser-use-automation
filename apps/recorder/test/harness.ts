@@ -46,10 +46,13 @@ export type Recorder = {
   url: string;
   recordingsDir: string;
   profilesDir: string;
+  trashDir: string;
   output: () => string;
   api: (method: string, route: string, body?: unknown) => Promise<ApiResponse>;
   timeline: (ticket: string) => any[];
   ticketJson: (ticket: string) => any;
+  // Stops the server process and starts a new one on the same folders and port, like reopening the app.
+  restart: (signal?: NodeJS.Signals) => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -58,26 +61,40 @@ export async function startRecorder(): Promise<Recorder> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'recorder-test-'));
   const recordingsDir = path.join(root, 'recordings');
   const profilesDir = path.join(root, 'profiles');
+  // Deleted Tickets go here instead of the developer's real Trash.
+  const trashDir = path.join(root, 'Trash');
+  fs.mkdirSync(trashDir);
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, ['src/server.ts'], {
-    cwd: APP_DIR,
-    env: {
-      ...process.env,
-      RECORDER_PORT: String(port),
-      RECORDINGS_DIR: recordingsDir,
-      PROFILES_DIR: profilesDir,
-      // Away from 9222, where a real Work Profile may be open on this Mac.
-      FIRST_CDP_PORT: String(await freePort()),
-      // Work Profiles opened from the API run headless here; for the Copywriter they are normal windows.
-      CHROME_PATH: CHROME,
-      CHROME_ARGS: '--headless=new',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const env = {
+    ...process.env,
+    RECORDER_PORT: String(port),
+    RECORDINGS_DIR: recordingsDir,
+    PROFILES_DIR: profilesDir,
+    TRASH_DIR: trashDir,
+    // Away from 9222, where a real Work Profile may be open on this Mac.
+    FIRST_CDP_PORT: String(await freePort()),
+    // Work Profiles opened from the API run headless here; for the Copywriter they are normal windows.
+    CHROME_PATH: CHROME,
+    CHROME_ARGS: '--headless=new',
+  };
   let output = '';
-  child.stdout!.on('data', (d) => (output += d));
-  child.stderr!.on('data', (d) => (output += d));
+  let child: ChildProcess;
+
+  const launch = async () => {
+    child = spawn(process.execPath, ['src/server.ts'], { cwd: APP_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout!.on('data', (d) => (output += d));
+    child.stderr!.on('data', (d) => (output += d));
+    try {
+      await waitFor('the recorder to answer', async () => {
+        if (child.exitCode !== null) throw new Error(`Recorder exited early:\n${output}`);
+        return (await fetch(`${url}/api/state`).catch(() => null))?.ok;
+      });
+    } catch (err) {
+      child.kill('SIGKILL');
+      throw err;
+    }
+  };
 
   const api = async (method: string, route: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(`${url}${route}`, {
@@ -90,12 +107,9 @@ export async function startRecorder(): Promise<Recorder> {
   };
 
   try {
-    await waitFor('the recorder to answer', async () => {
-      if (child.exitCode !== null) throw new Error(`Recorder exited early:\n${output}`);
-      return (await fetch(`${url}/api/state`).catch(() => null))?.ok;
-    });
+    await launch();
   } catch (err) {
-    child.kill('SIGKILL');
+    await rm(root, { recursive: true, force: true });
     throw err;
   }
 
@@ -104,6 +118,7 @@ export async function startRecorder(): Promise<Recorder> {
     url,
     recordingsDir,
     profilesDir,
+    trashDir,
     output: () => output,
     api,
     timeline: (ticket) => {
@@ -112,6 +127,11 @@ export async function startRecorder(): Promise<Recorder> {
       return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     },
     ticketJson: (ticket) => JSON.parse(fs.readFileSync(ticketFile(ticket, 'ticket.json'), 'utf8')),
+    restart: async (signal = 'SIGTERM') => {
+      child.kill(signal);
+      await exited(child);
+      await launch();
+    },
     close: async () => {
       // Work Profiles the server opened outlive it, like the Copywriter's Chromes; quit them first.
       const left = await api('GET', '/api/profiles').catch(() => null);

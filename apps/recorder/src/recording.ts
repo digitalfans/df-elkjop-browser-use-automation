@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { config } from './config.ts';
 import { conflict } from './errors.ts';
 import type { Event, EventType } from './events.ts';
-import { appendEvent, readTicket, readTimeline, ticketDir, writeTicket } from './tickets.ts';
+import { appendEvent, readTicket, readTimeline, rebuildZip, ticketDir, writeTicket } from './tickets.ts';
 import { getProfile, isOpen } from './work-profiles.ts';
 
 const LOGGER = fs.readFileSync(new URL('./page-logger.js', import.meta.url), 'utf8');
@@ -37,12 +37,21 @@ type Session = {
 
 let status: 'idle' | 'starting' | 'recording' | 'finishing' = 'idle';
 let session: Session | null = null;
-let attached: string | null = null; // Work Profile in use from the moment start begins until finished
+// The Work Profile and Ticket in use from the moment start begins until the Recording Session is finished.
+let attached: string | null = null;
+let recordedTicket: string | null = null;
 
 // The Work Profile being recorded cannot be closed: that would break the Recording Session.
 export function assertNotRecorded(profileName: string | undefined) {
   if (attached && attached === profileName) throw conflict(`${attached} is being recorded: finish the Recording Session first`);
 }
+
+// Nor can the Ticket being recorded be edited or deleted: that would corrupt the Recording.
+export function assertTicketNotRecorded(ticketId: string | undefined) {
+  if (recordedTicket && recordedTicket === ticketId) throw conflict(`${recordedTicket} is being recorded: finish the Recording Session first`);
+}
+
+export const isRecordingTicket = (ticketId: string) => recordedTicket === ticketId;
 
 export function recordingState() {
   return {
@@ -130,6 +139,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
   const profile = getProfile(profileName ?? '');
   status = 'starting';
   attached = profile.name;
+  recordedTicket = t.ticket;
   let browser: Browser | undefined;
   try {
     if (!(await isOpen(profile.port))) throw conflict(`Work Profile ${profile.name} is not open`);
@@ -161,6 +171,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
     await browser?.close().catch(() => {});
     session = null;
     attached = null;
+    recordedTicket = null;
     status = 'idle';
     throw err;
   }
@@ -190,9 +201,17 @@ export async function stop() {
       screenshots: s.screenshots, trace, errors: s.errors,
     });
     writeTicket(t);
+    // Built after ticket.json is final, so the zip holds this Recording Session's summary too.
+    try {
+      await rebuildZip(s.ticket);
+    } catch (err) {
+      t.sessions.at(-1)!.errors.push(`zip: ${firstLine(err)}`);
+      writeTicket(t);
+    }
   } finally {
     session = null;
     attached = null;
+    recordedTicket = null;
     status = 'idle';
   }
 }

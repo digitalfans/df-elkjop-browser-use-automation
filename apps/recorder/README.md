@@ -18,12 +18,15 @@ Data lives outside the app folder:
 | `RECORDER_PORT`  | `4317`                  | HTTP port                                    |
 | `RECORDINGS_DIR` | `~/elkjop-recordings`   | One folder per Ticket                        |
 | `PROFILES_DIR`   | `~/playwright-profiles` | Work Profiles (shared with the prototype)    |
+| `TRASH_DIR`      | `~/.Trash`              | Where deleted Tickets are moved              |
 | `FIRST_CDP_PORT` | `9222`                  | First debugging port given to a Work Profile |
 | `CHROME_PATH`    | Google Chrome in `/Applications` | Chrome a Work Profile opens in      |
 | `CHROME_ARGS`    | none                    | Extra Chrome flags, space separated (the tests pass `--headless=new`) |
 
 Work Profiles are managed from the page: create one by name (it gets the next free debugging port from `FIRST_CDP_PORT` up), open it as a normal Chrome window, close it as a regular quit (CDP `Browser.close`, so logins are saved). Several can be open at once. The one being recorded cannot be closed. The picker next to Start recording lists only open Work Profiles and defaults to the one last used for the Ticket; each Recording Session summary names its Work Profile.
 
-Each Ticket folder holds `ticket.json` (Ticket, Briefing, Recording Session summaries), `timeline.jsonl`, one event per line, appended the moment it is recorded, `screenshots/` (one shortly after each meaningful event, named in the event) and `traces/session-<n>.zip`, the Playwright trace of each Recording Session (open with `npx playwright show-trace`).
+Tickets are listed from disk, newest first, with their Briefing excerpt, Recording Sessions, events and last update. Typing an existing Ticket ID opens it instead of creating a duplicate. The Briefing can be saved and edited while the Ticket is not recording (a Briefing typed but not saved is saved when recording starts). Continue recording starts a new Recording Session on the same timeline: `seq` keeps counting, screenshots are never overwritten and each session has its own trace. Delete moves the Ticket folder and its zip to the Trash after confirmation; Folder opens it in Finder. Editing the Briefing of, or deleting, the Ticket being recorded is refused.
+
+Each Ticket folder holds `ticket.json` (Ticket, Briefing, Recording Session summaries), `timeline.jsonl`, one event per line, appended the moment it is recorded, `screenshots/` (one shortly after each meaningful event, named in the event) and `traces/session-<n>.zip`, the Playwright trace of each Recording Session (open with `npx playwright show-trace`). Next to it, `<ticket>.zip` holds the whole folder and is rebuilt at every Finish.
 
 Recorded events: clicks, form changes, rich-text edits (settled after a 1 s pause in typing), Enter, Tab, Escape and modifier shortcuts, copy, cut and paste with their text, main-frame navigations, tabs opening and closing, in every tab and iframe of the Work Profile, including pages already open when recording starts. Password values are masked. The recorder's own page is not recorded when it is open in the Work Profile; `/demo` is.

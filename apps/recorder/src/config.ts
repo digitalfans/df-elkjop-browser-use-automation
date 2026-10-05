@@ -8,6 +8,8 @@ export const config = {
   recordingsDir: process.env.RECORDINGS_DIR ?? path.join(os.homedir(), 'elkjop-recordings'),
   // Shared with the prototype, so Work Profiles already logged in keep their sessions.
   profilesDir: process.env.PROFILES_DIR ?? path.join(os.homedir(), 'playwright-profiles'),
+  // Deleted Tickets are moved here, so a wrong click is recoverable.
+  trashDir: process.env.TRASH_DIR ?? path.join(os.homedir(), '.Trash'),
   firstCdpPort: Number(process.env.FIRST_CDP_PORT ?? 9222),
   // The Google Chrome a Work Profile opens in, and extra flags for it (the tests run it headless).
   chromePath: process.env.CHROME_PATH ?? findChrome(),

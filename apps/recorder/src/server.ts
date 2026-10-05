@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { config } from './config.ts';
 import { HttpError, badRequest } from './errors.ts';
-import { assertNotRecorded, recordingState, start, stop } from './recording.ts';
-import { createOrOpenTicket } from './tickets.ts';
+import { assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
+import { createOrOpenTicket, deleteTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
 type Body = Record<string, string | undefined>;
@@ -24,7 +24,17 @@ const routes: Record<string, Route> = {
     assertNotRecorded(body.name);
     return closeProfile(body.name);
   },
+  'GET /api/tickets': () => listTickets().map((t) => ({ ...t, recording: isRecordingTicket(t.ticket) })),
   'POST /api/tickets': (body) => createOrOpenTicket(trimmed(body.ticket)),
+  'POST /api/tickets/briefing': (body) => {
+    assertTicketNotRecorded(body.ticket);
+    return saveBriefing(body.ticket, body.briefing);
+  },
+  'POST /api/tickets/delete': (body) => {
+    assertTicketNotRecorded(body.ticket);
+    return deleteTicket(body.ticket);
+  },
+  'POST /api/tickets/reveal': (body) => revealTicket(body.ticket),
   'POST /api/start': (body) => start(body.ticket, body.profile),
   'POST /api/stop': () => stop(),
 };

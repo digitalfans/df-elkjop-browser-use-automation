@@ -9,9 +9,11 @@
   h1 { font-size: 18px; } h2 { font-size: 15px; margin: 0 0 8px; }
   section { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
   button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid #888; background: #fff; cursor: pointer; }
-  button.primary { background: #c00; color: #fff; border-color: #c00; }
+  button.primary { background: #c00; color: #fff; border-color: #c00; } button.danger { color: #c00; border-color: #e5a0a0; }
   button:disabled { opacity: .4; cursor: default; }
   input, select { font: inherit; padding: 6px; }
+  textarea { font: inherit; padding: 6px; width: 100%; box-sizing: border-box; min-height: 120px; margin: 6px 0; }
+  tr.selected td { background: #fff7e6; }
   .ok { color: #080; } .muted { color: #777; font-size: 12px; } .notice { color: #a16207; margin-left: 8px; } .rec { color: #c00; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; } td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
   code { font-size: 12px; } pre { background: #f6f6f6; padding: 8px; font-size: 12px; overflow: auto; }
@@ -37,14 +39,28 @@
 </section>
 
 <section>
-  <h2>Ticket</h2>
+  <h2>Tickets</h2>
   <div class="row">
     <input id="ticket-id" placeholder="PM-32803">
     <button id="open-ticket">Create or open</button>
     <span id="ticket-notice" class="notice"></span>
   </div>
-  <div class="row" id="record-row" hidden>
-    <b id="ticket-label"></b>
+  <table>
+    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th></th></tr></thead>
+    <tbody id="tickets"></tbody>
+  </table>
+</section>
+
+<section id="ticket-panel" hidden>
+  <h2>Ticket <span id="ticket-label"></span> <span id="ticket-status"></span></h2>
+  <div>Briefing <span class="muted">(paste the Ticket's body and comments here)</span></div>
+  <textarea id="briefing" placeholder="Please find launch page LP - … ready on EN-local…"></textarea>
+  <div class="row">
+    <button id="save-briefing">Save Briefing</button>
+    <span id="briefing-notice" class="notice"></span>
+  </div>
+  <div style="margin-top:12px"><b>Recording Sessions</b> <div class="muted" id="sessions"></div></div>
+  <div class="row">
     Work Profile <select id="profile-select"></select>
     <button id="start" class="primary">● Start recording</button>
     <button id="stop">■ Finish</button>
@@ -74,8 +90,12 @@ const api = async (method, url, body) => {
 };
 const flash = (id, msg) => { $(id).textContent = msg; setTimeout(() => ($(id).textContent = ''), 4000); };
 
-let ticket = null;   // Ticket open in the panel
-let lastProfile = null; // Work Profile that Ticket was last recorded with
+const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+const mins = (a, b) => `${Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000))} min`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+let selected = null; // ID of the Ticket open in the panel
+let tickets = [];    // latest /api/tickets
 let rec = {};        // latest /api/state
 let profiles = [];
 let chosenProfile = null;
@@ -87,9 +107,17 @@ function detail(e) {
   return [loc, esc(extra), text].filter(Boolean).join(' ');
 }
 
+// The Briefing box is filled only when a Ticket is opened, so polling never overwrites her typing.
+function select(id) {
+  if (id !== selected) chosenProfile = null;
+  selected = id;
+  $('briefing').value = tickets.find((t) => t.ticket === id)?.briefing ?? '';
+  render();
+}
+
 function render() {
   const recording = rec.status !== 'idle';
-  if (recording && rec.ticket) ticket = rec.ticket;
+  if (recording && rec.ticket && selected !== rec.ticket) select(rec.ticket);
 
   $('profiles').innerHTML = profiles.map((p) => {
     const busy = recording && rec.profile === p.name;
@@ -105,22 +133,46 @@ function render() {
   }).join('') || '<tr><td colspan="4" class="muted">No Work Profiles yet.</td></tr>';
 
   $('open-ticket').disabled = recording;
-  $('record-row').hidden = !ticket;
-  $('ticket-label').textContent = ticket ?? '';
-  const open = profiles.filter((p) => p.open);
-  if (recording) chosenProfile = rec.profile;
-  // Default to the one last used for this Ticket, while it is open; otherwise the first open one.
-  else if (!open.some((p) => p.name === chosenProfile)) {
-    chosenProfile = open.some((p) => p.name === lastProfile) ? lastProfile : open[0]?.name ?? null;
+  $('tickets').innerHTML = tickets.map((t) => `
+    <tr class="${t.ticket === selected ? 'selected' : ''}">
+      <td><b>${esc(t.ticket)}</b>${t.recording ? ' <span class="rec">● REC</span>' : ''}</td>
+      <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
+      <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')}</td>
+      <td>${when(t.updatedAt)}</td>
+      <td style="white-space:nowrap">
+        <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
+        <button data-act="reveal" data-id="${esc(t.ticket)}">Folder</button>
+        <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}
+          title="${t.recording ? 'Being recorded: finish the Recording Session first' : 'Moves it to the Trash'}">Delete</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+
+  const t = tickets.find((x) => x.ticket === selected);
+  $('ticket-panel').hidden = !t;
+  if (t) {
+    const mine = recording && rec.ticket === t.ticket;
+    $('ticket-label').textContent = t.ticket;
+    $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
+    $('briefing').disabled = $('save-briefing').disabled = mine;
+    $('sessions').innerHTML = t.sessions.length
+      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')}`).join('<br>')
+      : 'none yet';
+    const open = profiles.filter((p) => p.open);
+    if (mine) chosenProfile = rec.profile;
+    // Default to the one last used for this Ticket, while it is open; otherwise the first open one.
+    else if (!open.some((p) => p.name === chosenProfile)) {
+      chosenProfile = open.some((p) => p.name === t.lastProfile) ? t.lastProfile : open[0]?.name ?? null;
+    }
+    $('profile-select').innerHTML = open.length
+      ? open.map((p) => `<option ${p.name === chosenProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')
+      : '<option>Open a Work Profile first</option>';
+    $('profile-select').disabled = recording || !open.length;
+    $('start').textContent = t.sessions.length ? `● Continue recording · session ${t.sessions.length + 1}` : '● Start recording';
+    $('start').disabled = recording || !chosenProfile;
+    $('stop').disabled = !mine || rec.status !== 'recording';
+    $('status').innerHTML = mine
+      ? `<span class="rec">● recording session ${rec.session} · ${Math.round((Date.now() - rec.startedAt) / 1000)}s</span>` : '';
   }
-  $('profile-select').innerHTML = open.length
-    ? open.map((p) => `<option ${p.name === chosenProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')
-    : '<option>Open a Work Profile first</option>';
-  $('profile-select').disabled = recording || !open.length;
-  $('start').disabled = recording || !chosenProfile;
-  $('stop').disabled = rec.status !== 'recording';
-  $('status').innerHTML = recording
-    ? `<span class="rec">● recording session ${rec.session} · ${Math.round((Date.now() - rec.startedAt) / 1000)}s</span>` : '';
 
   $('count').textContent = rec.eventCount ?? 0;
   $('events').innerHTML = (rec.events ?? []).slice().reverse().map((e) =>
@@ -128,7 +180,8 @@ function render() {
 }
 
 async function refresh() {
-  [rec, profiles] = await Promise.all([api('GET', '/api/state'), api('GET', '/api/profiles')]);
+  [rec, tickets, profiles] = await Promise.all([api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles')]);
+  if (selected && !tickets.some((t) => t.ticket === selected)) selected = null;
   render();
 }
 
@@ -136,16 +189,31 @@ $('open-ticket').onclick = async () => {
   const id = $('ticket-id').value.trim();
   if (!id) return;
   const t = await api('POST', '/api/tickets', { ticket: id });
-  ticket = t.ticket;
-  lastProfile = t.lastProfile;
-  chosenProfile = null;
   $('ticket-id').value = '';
   flash('ticket-notice', t.existed ? `${t.ticket} already exists, opened it.` : `${t.ticket} created.`);
-  refresh();
+  await refresh();
+  select(t.ticket);
 };
 $('ticket-id').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('open-ticket').click();
 });
+$('tickets').onclick = async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === 'open') select(id);
+  if (b.dataset.act === 'reveal') api('POST', '/api/tickets/reveal', { ticket: id }).catch(() => {});
+  if (b.dataset.act === 'delete' && confirm(`Delete ${id} and all its Recording Sessions?\nIt will be moved to the Trash.`)) {
+    await api('POST', '/api/tickets/delete', { ticket: id }).catch(() => {});
+    refresh();
+  }
+};
+$('save-briefing').onclick = async () => {
+  const t = await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  $('briefing').value = t.briefing ?? '';
+  flash('briefing-notice', 'Saved.');
+  refresh();
+};
 $('profile-select').onchange = (e) => (chosenProfile = e.target.value);
 $('profiles').onclick = async (e) => {
   const b = e.target.closest('button[data-pact]');
@@ -166,11 +234,16 @@ $('create-profile').onclick = async () => {
 $('new-profile').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('create-profile').click();
 });
-$('start').onclick = () => api('POST', '/api/start', { ticket, profile: chosenProfile }).then(refresh);
-$('stop').onclick = () => api('POST', '/api/stop').then(() => {
-  lastProfile = rec.profile;
+$('start').onclick = async () => {
+  // A Briefing typed but not saved is kept: recording locks the box, so save it first.
+  const t = tickets.find((x) => x.ticket === selected);
+  if ($('briefing').value.trim() !== (t?.briefing ?? '')) {
+    await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  }
+  await api('POST', '/api/start', { ticket: selected, profile: chosenProfile });
   refresh();
-});
+};
+$('stop').onclick = () => api('POST', '/api/stop').then(refresh);
 
 refresh();
 setInterval(refresh, 1000);

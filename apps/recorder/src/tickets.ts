@@ -1,9 +1,14 @@
-// Ticket store: one folder per Ticket with ticket.json and an append-only timeline.
+// Ticket store: one folder per Ticket with ticket.json and an append-only timeline, plus the
+// Ticket's zip next to the folder, rebuilt at every Finish.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { config } from './config.ts';
 import { badRequest, notFound } from './errors.ts';
 import type { Event } from './events.ts';
+
+const exec = promisify(execFile);
 
 export type SessionSummary = {
   n: number; profile: string; startedAt: string; finishedAt: string; events: number;
@@ -13,36 +18,132 @@ export type SessionSummary = {
 };
 export type Ticket = { ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[] };
 
+// What the history shows of a Ticket, besides the Ticket itself.
+export type TicketSummary = Ticket & {
+  dir: string;
+  excerpt: string; // the Briefing on one line, shortened
+  lastProfile: string | null; // the Work Profile it was last recorded with, which the picker offers first
+  totals: { sessions: number; events: number; screenshots: number };
+};
+
 const TIMELINE = 'timeline.jsonl';
+const TICKET = 'ticket.json';
+const EXCERPT = 140;
 
 export const ticketDir = (id: string) => path.join(config.recordingsDir, id);
+const ticketFile = (id: string) => path.join(ticketDir(id), TICKET);
+const zipFile = (id: string) => `${ticketDir(id)}.zip`;
 
-export function readTicket(id: string): Ticket {
-  const file = path.join(ticketDir(id), 'ticket.json');
+// A Ticket ID is also its folder name, so it can never point outside the recordings folder.
+function checkId(id: string | undefined): string {
+  if (!id || !/^[A-Za-z0-9][\w-]*$/.test(id)) throw badRequest('Ticket ID: letters, numbers, - and _ only (e.g. PM-32803)');
+  return id;
+}
+
+export function readTicket(id: string | undefined): Ticket {
+  const file = ticketFile(checkId(id));
   if (!fs.existsSync(file)) throw notFound(`Unknown Ticket ${id}`);
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+// Written to a temporary file and renamed, so a crash never leaves a half-written ticket.json.
 export function writeTicket(t: Ticket) {
   t.updatedAt = new Date().toISOString();
-  fs.writeFileSync(path.join(ticketDir(t.ticket), 'ticket.json'), JSON.stringify(t, null, 2));
+  const file = ticketFile(t.ticket);
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify(t, null, 2));
+  fs.renameSync(`${file}.tmp`, file);
 }
 
-// The Work Profile the Ticket was last recorded with, which the picker offers first.
-const lastProfile = (t: Ticket) => t.sessions.at(-1)?.profile ?? null;
+function summary(t: Ticket): TicketSummary {
+  const sum = (k: 'events' | 'screenshots') => t.sessions.reduce((n, s) => n + s[k], 0);
+  return {
+    ...t,
+    dir: ticketDir(t.ticket),
+    excerpt: (t.briefing ?? '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT),
+    lastProfile: t.sessions.at(-1)?.profile ?? null,
+    totals: { sessions: t.sessions.length, events: sum('events'), screenshots: sum('screenshots') },
+  };
+}
+
+// Every Ticket on disk, the most recently updated first.
+export function listTickets(): TicketSummary[] {
+  if (!fs.existsSync(config.recordingsDir)) return [];
+  const list: TicketSummary[] = [];
+  for (const d of fs.readdirSync(config.recordingsDir, { withFileTypes: true })) {
+    if (!d.isDirectory() || !fs.existsSync(ticketFile(d.name))) continue;
+    try {
+      list.push(summary(JSON.parse(fs.readFileSync(ticketFile(d.name), 'utf8'))));
+    } catch (err) {
+      console.error(`Skipping unreadable ${ticketFile(d.name)}:`, err);
+    }
+  }
+  return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
 
 // Typing an existing Ticket ID opens that Ticket instead of creating a duplicate.
 export function createOrOpenTicket(id: string | undefined) {
-  if (!id || !/^[A-Za-z0-9][\w-]*$/.test(id)) throw badRequest('Ticket ID: letters, numbers, - and _ only (e.g. PM-32803)');
-  if (fs.existsSync(path.join(ticketDir(id), 'ticket.json'))) {
-    const t = readTicket(id);
-    return { ...t, lastProfile: lastProfile(t), existed: true };
-  }
-  fs.mkdirSync(ticketDir(id), { recursive: true });
+  checkId(id);
+  if (fs.existsSync(ticketFile(id!))) return { ...summary(readTicket(id)), existed: true };
+  fs.mkdirSync(ticketDir(id!), { recursive: true });
   const now = new Date().toISOString();
-  const t: Ticket = { ticket: id, briefing: null, createdAt: now, updatedAt: now, sessions: [] };
+  const t: Ticket = { ticket: id!, briefing: null, createdAt: now, updatedAt: now, sessions: [] };
   writeTicket(t);
-  return { ...t, lastProfile: null, existed: false };
+  return { ...summary(t), existed: false };
+}
+
+// An empty Briefing clears it. The caller refuses this while the Ticket records.
+export function saveBriefing(id: string | undefined, briefing: string | undefined) {
+  const t = readTicket(id);
+  t.briefing = briefing?.trim() || null;
+  writeTicket(t);
+  return summary(t);
+}
+
+// Moved to the Trash, not removed: a wrong click must be recoverable. The caller refuses this while
+// the Ticket records.
+export function deleteTicket(id: string | undefined) {
+  const t = readTicket(id);
+  fs.mkdirSync(config.trashDir, { recursive: true });
+  const name = trashName(t.ticket);
+  if (fs.existsSync(zipFile(t.ticket))) moveTo(zipFile(t.ticket), path.join(config.trashDir, `${name}.zip`));
+  moveTo(ticketDir(t.ticket), path.join(config.trashDir, name));
+}
+
+// The Ticket ID and when it was deleted, never the name of something already in the Trash.
+function trashName(id: string) {
+  const base = `${id} ${new Date().toISOString().replace(/:/g, '.').replace('T', ' ').slice(0, 23)}`;
+  let name = base;
+  for (let i = 2; fs.existsSync(path.join(config.trashDir, name)) || fs.existsSync(path.join(config.trashDir, `${name}.zip`)); i++) name = `${base} ${i}`;
+  return name;
+}
+
+function moveTo(from: string, to: string) {
+  try {
+    fs.renameSync(from, to);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    fs.cpSync(from, to, { recursive: true });
+    fs.rmSync(from, { recursive: true, force: true });
+  }
+}
+
+// Opens the Ticket's folder in Finder.
+export async function revealTicket(id: string | undefined) {
+  const t = readTicket(id);
+  await exec('open', [ticketDir(t.ticket)]);
+}
+
+// The whole Ticket folder as one zip next to it, built aside and swapped in, so a reader never sees half of it.
+export async function rebuildZip(id: string) {
+  const zip = zipFile(id);
+  const partial = `${zip}.partial`;
+  fs.rmSync(partial, { force: true });
+  try {
+    await exec('/usr/bin/zip', ['-qr', partial, '.', '-x', `${TICKET}.tmp`], { cwd: ticketDir(id) });
+    fs.renameSync(partial, zip);
+  } finally {
+    fs.rmSync(partial, { force: true });
+  }
 }
 
 export function readTimeline(id: string): Event[] {
