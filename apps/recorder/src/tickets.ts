@@ -1,12 +1,13 @@
 // Ticket store: one folder per Ticket with ticket.json and an append-only timeline, plus the
-// Ticket's zip next to the folder, rebuilt at every Finish.
+// Ticket's zip next to the folder, rebuilt at every Finish and at every Export.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { config } from './config.ts';
-import { badRequest, notFound } from './errors.ts';
+import { badRequest, conflict, notFound } from './errors.ts';
 import type { Event } from './events.ts';
+import { readSettings } from './settings.ts';
 
 const exec = promisify(execFile);
 
@@ -18,7 +19,12 @@ export type SessionSummary = {
   errors: string[]; // what could not be captured, e.g. a screenshot of a tab that closed
   recovered?: true; // interrupted (crash, closed Terminal, restart) and closed from the events on disk at the next start
 };
-export type Ticket = { ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[] };
+// The last time the Ticket was exported, and the zip it left in the export folder.
+export type ExportSummary = { at: string; file: string };
+export type Ticket = {
+  ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[];
+  lastExport: ExportSummary | null;
+};
 
 // What the history shows of a Ticket, besides the Ticket itself.
 export type TicketSummary = Ticket & {
@@ -45,18 +51,20 @@ function checkId(id: string | undefined): string {
 export function readTicket(id: string | undefined): Ticket {
   const file = ticketFile(checkId(id));
   if (!fs.existsSync(file)) throw notFound(`Unknown Ticket ${id}`);
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return { lastExport: null, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
 }
 
 // Written to a temporary file and renamed, so a crash never leaves a half-written ticket.json.
-export function writeTicket(t: Ticket) {
-  t.updatedAt = new Date().toISOString();
+// Recording an export is not an update: updatedAt later than lastExport means the export is outdated.
+export function writeTicket(t: Ticket, { touch = true } = {}) {
+  if (touch) t.updatedAt = new Date().toISOString();
   const file = ticketFile(t.ticket);
   fs.writeFileSync(`${file}.tmp`, JSON.stringify(t, null, 2));
   fs.renameSync(`${file}.tmp`, file);
 }
 
 function summary(t: Ticket): TicketSummary {
+  t = { ...t, lastExport: t.lastExport ?? null };
   const sum = (k: 'events' | 'screenshots' | 'annotations') => t.sessions.reduce((n, s) => n + (s[k] ?? 0), 0);
   return {
     ...t,
@@ -88,7 +96,7 @@ export function createOrOpenTicket(id: string | undefined) {
   if (fs.existsSync(ticketFile(id!))) return { ...summary(readTicket(id)), existed: true };
   fs.mkdirSync(ticketDir(id!), { recursive: true });
   const now = new Date().toISOString();
-  const t: Ticket = { ticket: id!, briefing: null, createdAt: now, updatedAt: now, sessions: [] };
+  const t: Ticket = { ticket: id!, briefing: null, createdAt: now, updatedAt: now, sessions: [], lastExport: null };
   writeTicket(t);
   return { ...summary(t), existed: false };
 }
@@ -146,6 +154,47 @@ export async function rebuildZip(id: string) {
   } finally {
     fs.rmSync(partial, { force: true });
   }
+}
+
+// Copies a freshly built zip of the Ticket into the export folder, which her SharePoint/OneDrive client
+// syncs to the developer; the app itself never uploads anything. Each export is a new file named after
+// the Ticket and the time, so re-exports never overwrite. The caller refuses this while the Ticket records.
+export async function exportTicket(id: string | undefined) {
+  const t = readTicket(id);
+  const { exportDir } = readSettings();
+  if (!exportDir) throw conflict('Set an export folder in the settings first');
+  if (!fs.statSync(exportDir, { throwIfNoEntry: false })?.isDirectory()) {
+    throw conflict(`The export folder ${exportDir} is not available: check that it is synced, or choose another one`);
+  }
+  try {
+    fs.accessSync(exportDir, fs.constants.W_OK);
+  } catch {
+    throw conflict(`The export folder ${exportDir} is not writable: choose another one`);
+  }
+  await rebuildZip(t.ticket);
+  const at = new Date();
+  const file = exportName(exportDir, t.ticket, at);
+  // Copied under a hidden name and renamed, so the sync client never picks up half a zip.
+  const partial = path.join(exportDir, `.${path.basename(file)}.partial`);
+  try {
+    fs.copyFileSync(zipFile(t.ticket), partial);
+    fs.renameSync(partial, file);
+  } finally {
+    fs.rmSync(partial, { force: true });
+  }
+  // Read again: the Briefing may have been saved while the zip was being built.
+  const latest = readTicket(t.ticket);
+  latest.lastExport = { at: at.toISOString(), file };
+  writeTicket(latest, { touch: false });
+  return summary(latest);
+}
+
+// <ticket>-<UTC time>.zip, with a counter when that name is taken (two exports in the same second).
+function exportName(dir: string, id: string, at: Date) {
+  const base = `${id}-${at.toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`;
+  let file = path.join(dir, `${base}.zip`);
+  for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, `${base}-${i}.zip`);
+  return file;
 }
 
 // A crash in the middle of an append can leave a last line without its newline; it is dropped, so the

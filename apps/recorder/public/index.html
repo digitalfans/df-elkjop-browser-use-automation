@@ -53,6 +53,16 @@
 </section>
 
 <section>
+  <h2>Settings</h2>
+  <div>Export folder <span class="muted">(the SharePoint/OneDrive folder synced on this Mac; Export puts each Ticket's zip there)</span></div>
+  <div class="row">
+    <input id="export-dir" placeholder="/Users/you/OneDrive - Company/Recordings" style="flex:1; min-width:240px">
+    <button id="save-settings">Save</button>
+    <span id="settings-notice" class="notice"></span>
+  </div>
+</section>
+
+<section>
   <h2>Tickets</h2>
   <div class="row">
     <input id="ticket-id" placeholder="PM-32803">
@@ -60,7 +70,7 @@
     <span id="ticket-notice" class="notice"></span>
   </div>
   <table>
-    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th></th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th></th></tr></thead>
     <tbody id="tickets"></tbody>
   </table>
 </section>
@@ -72,6 +82,11 @@
   <div class="row">
     <button id="save-briefing">Save Briefing</button>
     <span id="briefing-notice" class="notice"></span>
+  </div>
+  <div class="row">
+    <button id="export">Export</button>
+    <span id="export-info" class="muted"></span>
+    <span id="export-notice" class="notice"></span>
   </div>
   <div style="margin-top:12px"><b>Recording Sessions</b> <div class="muted" id="sessions"></div></div>
   <div class="row">
@@ -124,6 +139,8 @@ let tickets = [];    // latest /api/tickets
 let rec = {};        // latest /api/state
 let profiles = [];
 let chosenProfile = null;
+let settings = {};
+let settingsShown = false; // the export folder box is filled once, so polling never overwrites her typing
 
 function detail(e) {
   if (e.type === 'annotation') return `<span class="kind kind-${esc(e.kind)}">${esc(e.kind.toUpperCase())}${e.n ? ' ' + e.n : ''}</span> ${esc(e.text)}`;
@@ -139,6 +156,12 @@ function select(id) {
   selected = id;
   $('briefing').value = tickets.find((t) => t.ticket === id)?.briefing ?? '';
   render();
+}
+
+// When it was last exported, and whether it changed since, so she knows if the developer has the latest.
+function exportedLabel(t) {
+  if (!t.lastExport) return '<span class="muted">never</span>';
+  return `${when(t.lastExport.at)}${t.updatedAt > t.lastExport.at ? ' <span class="notice">changed since</span>' : ''}`;
 }
 
 function render() {
@@ -170,13 +193,14 @@ function render() {
       <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
       <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')} · ${plural(t.totals.annotations ?? 0, 'annotation')}</td>
       <td>${when(t.updatedAt)}</td>
+      <td>${exportedLabel(t)}</td>
       <td style="white-space:nowrap">
         <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
         <button data-act="reveal" data-id="${esc(t.ticket)}">Folder</button>
         <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}
           title="${t.recording ? 'Being recorded: finish the Recording Session first' : 'Moves it to the Trash'}">Delete</button>
       </td>
-    </tr>`).join('') || '<tr><td colspan="5" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
 
   const t = tickets.find((x) => x.ticket === selected);
   $('ticket-panel').hidden = !t;
@@ -185,6 +209,12 @@ function render() {
     $('ticket-label').textContent = t.ticket;
     $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
     $('briefing').disabled = $('save-briefing').disabled = mine;
+    $('export').disabled = t.recording || !settings.exportDir;
+    $('export').title = t.recording ? 'Being recorded: finish the Recording Session first'
+      : !settings.exportDir ? 'Set an export folder in the settings first' : `Copies its zip to ${settings.exportDir}`;
+    $('export-info').innerHTML = t.lastExport
+      ? `Last exported ${exportedLabel(t)} as ${esc(t.lastExport.file.split('/').pop())}`
+      : !settings.exportDir ? 'Set an export folder in the settings to export.' : 'Not exported yet.';
     $('sessions').innerHTML = t.sessions.length
       ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')} · ${plural(s.annotations ?? 0, 'annotation')}${s.recovered ? ' · <span class="notice">interrupted, recovered</span>' : ''}`).join('<br>')
       : 'none yet';
@@ -216,7 +246,12 @@ function render() {
 }
 
 async function refresh() {
-  [rec, tickets, profiles] = await Promise.all([api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles')]);
+  [rec, tickets, profiles, settings] = await Promise.all([
+    api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles'), api('GET', '/api/settings')]);
+  if (!settingsShown) {
+    $('export-dir').value = settings.exportDir ?? '';
+    settingsShown = true;
+  }
   if (selected && !tickets.some((t) => t.ticket === selected)) selected = null;
   render();
 }
@@ -249,6 +284,26 @@ $('save-briefing').onclick = async () => {
   $('briefing').value = t.briefing ?? '';
   flash('briefing-notice', 'Saved.');
   refresh();
+};
+$('save-settings').onclick = async () => {
+  settings = await api('POST', '/api/settings', { exportDir: $('export-dir').value });
+  $('export-dir').value = settings.exportDir ?? '';
+  flash('settings-notice', settings.exportDir ? 'Saved.' : 'Export folder cleared.');
+  refresh();
+};
+$('export-dir').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('save-settings').click();
+});
+$('export').onclick = async () => {
+  $('export').disabled = true;
+  try {
+    const t = await api('POST', '/api/tickets/export', { ticket: selected });
+    flash('export-notice', `Exported to ${t.lastExport.file}`);
+  } catch {
+    // The error is shown under the live events.
+  } finally {
+    refresh();
+  }
 };
 $('profile-select').onchange = (e) => (chosenProfile = e.target.value);
 $('profiles').onclick = async (e) => {

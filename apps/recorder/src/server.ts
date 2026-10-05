@@ -5,7 +5,8 @@ import { config } from './config.ts';
 import { HttpError, badRequest } from './errors.ts';
 import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
 import { dismissRecoveryNotices, recoverInterrupted } from './recovery.ts';
-import { createOrOpenTicket, deleteTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
+import { readSettings, saveSettings } from './settings.ts';
+import { createOrOpenTicket, deleteTicket, exportTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
 type Body = Record<string, string | undefined>;
@@ -36,6 +37,12 @@ const routes: Record<string, Route> = {
     return deleteTicket(body.ticket);
   },
   'POST /api/tickets/reveal': (body) => revealTicket(body.ticket),
+  'POST /api/tickets/export': (body) => {
+    assertTicketNotRecorded(body.ticket);
+    return exportTicket(body.ticket);
+  },
+  'GET /api/settings': () => readSettings(),
+  'POST /api/settings': (body) => saveSettings(body),
   'POST /api/start': (body) => start(body.ticket, body.profile),
   'POST /api/stop': () => stop(),
   'POST /api/annotate': (body) => annotate(body.kind, body.text),
