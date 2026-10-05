@@ -173,6 +173,8 @@ Close the recorder, then move these to the Trash: the **Elkjop Recorder** folder
 
 **Double-clicking the Desktop icon shows a warning.** Right-click the icon, choose **Open**, then **Open** again. If macOS still refuses, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run the install command from step 3 again, which also starts it.
 
+**Google Chrome shows red in the checklist, but Chrome is installed.** The recorder looks in Applications and then asks Spotlight for Chrome anywhere on the Mac (company-managed Macs sometimes put it elsewhere). If it is still red, make sure the app is the official Google Chrome and that Spotlight is on (System Settings → Spotlight), then click **Check again**.
+
 **The Work Profile asks me to log in again.** Some sites end sessions after a while. Log in again in the Work Profile window; it isn't a problem for the recorder.
 
 **"Work Profile … is not open" when starting a recording.** Click **Open** next to the Work Profile first, then choose it next to Start recording.

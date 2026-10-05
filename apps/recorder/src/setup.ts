@@ -84,7 +84,7 @@ async function chromeCheck(): Promise<Check> {
     required: true, ok: found,
     detail: found
       ? `version ${await chromeVersion(config.chromePath)} at ${config.chromePath}`
-      : `Not found at ${config.chromePath}. Download it from https://www.google.com/chrome, drag it to Applications, then check again.`,
+      : 'Not found in Applications, nor anywhere Spotlight can see. Download it from https://www.google.com/chrome, drag it to Applications, then check again.',
   };
 }
 
