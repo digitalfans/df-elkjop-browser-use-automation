@@ -63,11 +63,14 @@ export type RecorderOptions = {
   env?: Record<string, string>;
 };
 
-// Copies the app as it ships (code, page, manifests) without node_modules, so Playwright is missing,
-// into a temporary folder that the caller removes.
+// The double-clickable launcher, in the app folder.
+export const LAUNCHER = 'Start Recorder.command';
+
+// Copies the app as it ships (code, page, manifests, launcher) without node_modules, so Playwright is
+// missing, into a temporary folder that the caller removes.
 export async function copyApp(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'recorder-app-'));
-  for (const entry of ['src', 'public', 'package.json', 'package-lock.json']) {
+  for (const entry of ['src', 'public', 'package.json', 'package-lock.json', LAUNCHER]) {
     fs.cpSync(path.join(APP_DIR, entry), path.join(dir, entry), { recursive: true });
   }
   return dir;
@@ -76,11 +79,12 @@ export async function copyApp(): Promise<string> {
 // Starts the server as a child process with fresh recordings and Work Profiles folders and a free port.
 export async function startRecorder(options: RecorderOptions = {}): Promise<Recorder> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'recorder-test-'));
-  const recordingsDir = path.join(root, 'recordings');
-  const profilesDir = path.join(root, 'profiles');
+  // Folders the caller passes in `env` are used instead, and outlive the server.
+  const recordingsDir = options.env?.RECORDINGS_DIR ?? path.join(root, 'recordings');
+  const profilesDir = options.env?.PROFILES_DIR ?? path.join(root, 'profiles');
   // Deleted Tickets go here instead of the developer's real Trash.
-  const trashDir = path.join(root, 'Trash');
-  fs.mkdirSync(trashDir);
+  const trashDir = options.env?.TRASH_DIR ?? path.join(root, 'Trash');
+  fs.mkdirSync(trashDir, { recursive: true });
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   // Without the npm_* variables `npm test` sets, so an npm the server runs only sees its own app folder.
@@ -219,4 +223,43 @@ export async function launchChrome(profile: { dir: string; port: number }): Prom
 export async function connectChrome(profile: { port: number }) {
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
   return { browser, context: browser.contexts()[0], close: () => browser.close().catch(() => {}) };
+}
+
+// A fresh Mac's PATH: system tools (curl, shasum, tar, open) and no Node.js.
+export const BARE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+
+export type Launcher = {
+  output: () => string;
+  // Resolves with the exit code once the launcher, or the server it became, ends.
+  exited: Promise<number | null>;
+  // Stops the launcher and everything it started.
+  stop: () => Promise<void>;
+};
+
+// Runs the app folder's launcher the way a double-click does (its own shebang, from any folder), with
+// only `env` on top of a fresh Mac's environment.
+export function runLauncher(appDir: string, env: Record<string, string>): Launcher {
+  const child = spawn(path.join(appDir, LAUNCHER), [], {
+    cwd: os.tmpdir(),
+    env: { HOME: os.homedir(), USER: os.userInfo().username, TMPDIR: os.tmpdir(), PATH: BARE_PATH, ...env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // Its own process group, so stopping it also stops the server and the page opener it starts.
+    detached: true,
+  });
+  let output = '';
+  child.stdout!.on('data', (d) => (output += d));
+  child.stderr!.on('data', (d) => (output += d));
+  const exited = new Promise<number | null>((resolve) => child.once('exit', (code) => resolve(code)));
+  return {
+    output: () => output,
+    exited,
+    stop: async () => {
+      try {
+        process.kill(-child.pid!, 'SIGTERM');
+      } catch {
+        return;
+      }
+      await exited;
+    },
+  };
 }

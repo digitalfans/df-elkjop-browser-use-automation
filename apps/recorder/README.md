@@ -8,10 +8,30 @@ TypeScript run directly by Node.js ≥ 22.18 (native type stripping), no build s
 npm install
 npm start        # http://localhost:4317, /demo is a fake CMS page
 npm test         # node:test against a real server process and a headless Google Chrome
+npm run test:slow  # the launcher on a fresh Mac: downloads Node.js and installs from npm (network)
 npm run typecheck
 ```
 
-Data lives outside the app folder:
+## Installing on a new Mac
+
+Nothing needs to be installed first and no admin rights are needed; Google Chrome is the only thing she installs by hand, and the Setup checklist says so if it is missing.
+
+1. Make the zip of the app folder, without `node_modules/` and `.runtime/` (from the repo root: `git archive --format=zip --prefix=recorder/ -o recorder-<version>.zip HEAD:apps/recorder`), send it, and unzip it anywhere on her Mac (e.g. in Documents).
+2. The first time, **right-click `Start Recorder.command` → Open → Open**: macOS Gatekeeper blocks a downloaded script on a plain double-click. If macOS still refuses (macOS 15 and later), open **System Settings → Privacy & Security**, click **Open Anyway** next to the message about `Start Recorder.command`, and confirm. From then on a double-click is enough.
+3. The launcher runs in a Terminal window:
+   - **Node.js**: it uses the Mac's Node.js if it is recent enough for the app (the `engines` version in `package.json`); otherwise it downloads the pinned Node.js for the Mac's architecture (Apple Silicon or Intel) from nodejs.org into `.runtime/` in the app folder, checks its SHA-256 against the official `SHASUMS256.txt` and stops without installing anything if it does not match or the download fails.
+   - **Dependencies**: `npm ci --omit=dev` into `node_modules/`, without downloading any browser (Work Profiles open in her Google Chrome).
+   - **Start**: it starts the app in that window and opens http://localhost:4317 once the server answers. Keep the window open; closing it stops the recorder.
+4. Double-clicking the launcher while the app runs only opens the page.
+5. The page opens on the Setup checklist: create a Work Profile, open it and log in to the Elkjøp tools once, by hand.
+
+## Updating
+
+An update is a new zip of the app folder. Close the recorder's Terminal window, delete the old app folder (or move it to the Trash), unzip the new one in its place and double-click its launcher (right-click → Open the first time, as above). The first start of each new folder downloads Node.js and installs the dependencies again if needed. Tickets, Recordings, Work Profiles and settings are kept: they live outside the app folder (below), never inside it. The version in the page header shows which one runs.
+
+## Configuration
+
+Data lives outside the app folder, so updates keep it:
 
 | Variable         | Default                 | What                                         |
 | ---------------- | ----------------------- | -------------------------------------------- |
@@ -22,6 +42,10 @@ Data lives outside the app folder:
 | `FIRST_CDP_PORT` | `9222`                  | First debugging port given to a Work Profile |
 | `CHROME_PATH`    | Google Chrome in `/Applications` | Chrome a Work Profile opens in      |
 | `CHROME_ARGS`    | none                    | Extra Chrome flags, space separated (the tests pass `--headless=new`) |
+| `RECORDER_NO_OPEN` | none                  | Launcher only: `1` to not open the page in the browser (the tests) |
+| `RECORDER_NODE_MIRROR` | `https://nodejs.org/dist` | Launcher only: where Node.js and its checksums are downloaded from |
+
+The launcher passes these on to the app, so it can be started on another port or data folders too.
 
 Work Profiles are managed from the page: create one by name (it gets the next free debugging port from `FIRST_CDP_PORT` up), open it as a normal Chrome window, close it as a regular quit (CDP `Browser.close`, so logins are saved). Several can be open at once. The one being recorded cannot be closed. The picker next to Start recording lists only open Work Profiles and defaults to the one last used for the Ticket; each Recording Session summary names its Work Profile.
 
