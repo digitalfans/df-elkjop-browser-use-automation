@@ -25,11 +25,37 @@
   .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
   .recovery, .disk-warning { background: #fff7e6; border-color: #f0c36d; }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; }
+  header nav a { margin-right: 12px; color: #1d4ed8; cursor: pointer; text-decoration: none; } header nav a.active { font-weight: 600; text-decoration: underline; }
+  .check { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eee; } .check .icon { font-weight: 700; width: 20px; flex: none; }
+  .check-ok .icon { color: #080; } .check-bad .icon { color: #c00; } .check-optional .icon { color: #a16207; }
+  .check .label { font-weight: 600; } .check .detail { color: #333; font-size: 13px; margin: 4px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .banner { padding: 10px 14px; border-radius: 6px; margin: 8px 0; } .banner.ok { background: #e7f6ec; color: #14532d; } .banner.bad { background: #fdecea; color: #7f1d1d; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
-<h1>Ticket recorder</h1>
+<header>
+  <h1>Ticket recorder <span class="muted" id="app-version"></span></h1>
+  <nav><a id="nav-recorder">Recorder</a><a id="nav-setup">Setup</a></nav>
+</header>
+
+<div id="setup-view" hidden>
+<section>
+  <h2>Setup checklist</h2>
+  <div id="setup-banner" class="banner"></div>
+  <div class="muted">Everything the recorder needs on this Mac. Fix what is red, then check again. This page checks again by itself.</div>
+  <div id="checks"></div>
+  <div class="row">
+    <button id="recheck">Check again</button>
+    <button id="go-recorder" class="primary" hidden>Go to the recorder</button>
+    <span class="muted">Recorder version <span id="setup-version"></span></span>
+  </div>
+  <pre id="setup-log" hidden></pre>
+</section>
+</div>
+
+<div id="recorder-view" hidden>
 
 <section id="recovery-notice" class="recovery" hidden>
   <b>A Recording Session was interrupted and has been recovered.</b>
@@ -125,6 +151,7 @@
   <table><thead><tr><th>#</th><th>step</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>screenshot</th></tr></thead><tbody id="events"></tbody></table>
   <pre id="error" hidden></pre>
 </section>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -374,8 +401,117 @@ document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = async () =>
   refresh();
 }));
 
-refresh();
-setInterval(refresh, 1000);
+// --- Setup checklist ---
+
+let view = null;         // 'setup' | 'recorder'
+let setupBusy = false;   // an install or a create is running: the checklist is not redrawn under it
+let lastHealth = '';     // the checklist is redrawn only when something changed
+let wasHealthy = null;   // on the checklist, the Mac turning healthy takes her to the recorder
+
+const setupLog = (text) => { $('setup-log').hidden = !text; $('setup-log').textContent = text ?? ''; };
+
+function showVersion(v) {
+  $('app-version').textContent = v ? `v${v}` : '';
+  $('setup-version').textContent = v ?? '';
+}
+
+// Redrawing keeps what she is typing in the Work Profile name box, and her cursor in it.
+function renderChecks(h) {
+  const key = JSON.stringify(h);
+  if (key === lastHealth) return;
+  lastHealth = key;
+  const input = $('setup-profile');
+  const typed = input?.value;
+  const focused = input && document.activeElement === input ? [input.selectionStart, input.selectionEnd] : null;
+  $('checks').innerHTML = h.checks.map((c) => `
+    <div class="check check-${c.ok ? 'ok' : c.required ? 'bad' : 'optional'}">
+      <div class="icon">${c.ok ? '✓' : c.required ? '✗' : '–'}</div>
+      <div>
+        <div class="label">${esc(c.label)}${c.required ? '' : ' <span class="muted">(optional)</span>'}</div>
+        <div class="muted">${esc(c.help)}</div>
+        <div class="detail">${esc(c.detail)}</div>
+        ${c.action === 'install' ? '<button data-setup="install">Install Playwright</button>' : ''}
+        ${c.action === 'create-profile' ? '<div class="row"><input id="setup-profile" value="elkjop"> <button data-setup="create-profile">Create profile</button></div>' : ''}
+      </div>
+    </div>`).join('');
+  const again = $('setup-profile');
+  if (again && typed !== undefined) {
+    again.value = typed;
+    if (focused) {
+      again.focus();
+      again.setSelectionRange(...focused);
+    }
+  }
+}
+
+async function refreshSetup() {
+  if (view !== 'setup' || setupBusy) return;
+  const h = await api('GET', '/api/health').catch(() => null);
+  if (!h || view !== 'setup' || setupBusy) return;
+  showVersion(h.version);
+  const missing = h.checks.filter((c) => c.required && !c.ok).length;
+  $('setup-banner').className = `banner ${h.healthy ? 'ok' : 'bad'}`;
+  $('setup-banner').textContent = h.healthy
+    ? (wasHealthy === false ? 'All set. This Mac is ready to record. Going to the recorder…' : 'All set. This Mac is ready to record.')
+    : `${missing} item${missing === 1 ? '' : 's'} need${missing === 1 ? 's' : ''} attention before you can record.`;
+  $('go-recorder').hidden = !h.healthy;
+  renderChecks(h);
+  if (h.healthy && wasHealthy === false) setTimeout(() => view === 'setup' && show('recorder'), 1500);
+  wasHealthy = h.healthy;
+}
+
+function show(next) {
+  view = next;
+  $('setup-view').hidden = next !== 'setup';
+  $('recorder-view').hidden = next !== 'recorder';
+  $('nav-setup').className = next === 'setup' ? 'active' : '';
+  $('nav-recorder').className = next === 'recorder' ? 'active' : '';
+  if (next === 'setup') {
+    wasHealthy = null;
+    return refreshSetup();
+  }
+  return refresh();
+}
+
+$('checks').onclick = async (e) => {
+  const b = e.target.closest('button[data-setup]');
+  if (!b) return;
+  b.disabled = true;
+  setupBusy = true;
+  try {
+    if (b.dataset.setup === 'install') {
+      b.textContent = 'Installing… (about a minute)';
+      setupLog('npm install…');
+      const out = await api('POST', '/api/setup/install');
+      setupLog(out.log || 'Installed.');
+    }
+    if (b.dataset.setup === 'create-profile') {
+      const p = await api('POST', '/api/profiles', { name: $('setup-profile').value.trim() });
+      setupLog(`${p.name} created. Open it from the recorder and log in to the Elkjøp tools once, by hand.`);
+    }
+  } catch (err) {
+    setupLog(err.message);
+    b.disabled = false;
+    if (b.dataset.setup === 'install') b.textContent = 'Install Playwright';
+  } finally {
+    setupBusy = false;
+  }
+  refreshSetup();
+};
+$('checks').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'setup-profile') e.target.closest('.check').querySelector('[data-setup]').click();
+});
+$('recheck').onclick = () => refreshSetup();
+$('go-recorder').onclick = () => show('recorder');
+$('nav-setup').onclick = () => show('setup');
+$('nav-recorder').onclick = () => show('recorder');
+
+// A Mac that is not ready opens on the checklist; a healthy one goes straight to the recorder.
+api('GET', '/api/health')
+  .then((h) => { showVersion(h.version); return show(h.healthy ? 'recorder' : 'setup'); })
+  .catch(() => show('setup'));
+setInterval(() => view === 'recorder' && refresh(), 1000);
+setInterval(refreshSetup, 3000);
 </script>
 </body>
 </html>

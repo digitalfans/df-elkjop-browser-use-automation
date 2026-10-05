@@ -6,6 +6,7 @@ import { HttpError, badRequest } from './errors.ts';
 import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
 import { dismissRecoveryNotices, recoverInterrupted } from './recovery.ts';
 import { readSettings, saveSettings } from './settings.ts';
+import { health, installPlaywright, version } from './setup.ts';
 import { createOrOpenTicket, deleteTicket, diskUsage, exportTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
@@ -18,7 +19,9 @@ const trimmed = (s: string | undefined) => (typeof s === 'string' ? s.trim() : u
 const pages: Record<string, string> = { '/': 'index.html', '/demo': 'demo.html' };
 
 const routes: Record<string, Route> = {
-  'GET /api/state': () => ({ ...recordingState(), recordingsDir: config.recordingsDir, profilesDir: config.profilesDir }),
+  'GET /api/state': () => ({ ...recordingState(), version, recordingsDir: config.recordingsDir, profilesDir: config.profilesDir }),
+  'GET /api/health': () => health(),
+  'POST /api/setup/install': () => installPlaywright(),
   'GET /api/profiles': () => listProfiles(),
   'POST /api/profiles': (body) => createProfile(trimmed(body.name)),
   'POST /api/profiles/open': (body) => openProfile(body.name),

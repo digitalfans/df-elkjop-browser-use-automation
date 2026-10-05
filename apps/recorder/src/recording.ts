@@ -9,6 +9,7 @@ import { badRequest, conflict } from './errors.ts';
 import type { AnnotationKind, Event, EventType } from './events.ts';
 import { appendEvent, readTicket, readTimeline, rebuildZip, ticketDir, writeTicket } from './tickets.ts';
 import { clearOpen, markOpen, recoveryNotices } from './recovery.ts';
+import { loadPlaywright } from './setup.ts';
 import { getProfile, isOpen } from './work-profiles.ts';
 
 const LOGGER = fs.readFileSync(new URL('./page-logger.js', import.meta.url), 'utf8');
@@ -154,7 +155,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
   let browser: Browser | undefined;
   try {
     if (!(await isOpen(profile.port))) throw conflict(`Work Profile ${profile.name} is not open`);
-    const { chromium } = await import('playwright');
+    const { chromium } = await loadPlaywright();
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
     const context: BrowserContext = browser.contexts()[0];
     fs.mkdirSync(path.join(ticketDir(t.ticket), 'screenshots'), { recursive: true });

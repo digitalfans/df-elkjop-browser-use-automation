@@ -56,8 +56,25 @@ export type Recorder = {
   close: () => Promise<void>;
 };
 
+export type RecorderOptions = {
+  // The app folder to run, by default this one; a copy without node_modules is a Mac without Playwright.
+  appDir?: string;
+  // Environment overrides on top of the test defaults, e.g. a missing Chrome.
+  env?: Record<string, string>;
+};
+
+// Copies the app as it ships (code, page, manifests) without node_modules, so Playwright is missing,
+// into a temporary folder that the caller removes.
+export async function copyApp(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'recorder-app-'));
+  for (const entry of ['src', 'public', 'package.json', 'package-lock.json']) {
+    fs.cpSync(path.join(APP_DIR, entry), path.join(dir, entry), { recursive: true });
+  }
+  return dir;
+}
+
 // Starts the server as a child process with fresh recordings and Work Profiles folders and a free port.
-export async function startRecorder(): Promise<Recorder> {
+export async function startRecorder(options: RecorderOptions = {}): Promise<Recorder> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'recorder-test-'));
   const recordingsDir = path.join(root, 'recordings');
   const profilesDir = path.join(root, 'profiles');
@@ -66,8 +83,10 @@ export async function startRecorder(): Promise<Recorder> {
   fs.mkdirSync(trashDir);
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
+  // Without the npm_* variables `npm test` sets, so an npm the server runs only sees its own app folder.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toLowerCase().startsWith('npm_')));
   const env = {
-    ...process.env,
+    ...inherited,
     RECORDER_PORT: String(port),
     RECORDINGS_DIR: recordingsDir,
     PROFILES_DIR: profilesDir,
@@ -77,12 +96,13 @@ export async function startRecorder(): Promise<Recorder> {
     // Work Profiles opened from the API run headless here; for the Copywriter they are normal windows.
     CHROME_PATH: CHROME,
     CHROME_ARGS: '--headless=new',
+    ...options.env,
   };
   let output = '';
   let child: ChildProcess;
 
   const launch = async () => {
-    child = spawn(process.execPath, ['src/server.ts'], { cwd: APP_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(process.execPath, ['src/server.ts'], { cwd: options.appDir ?? APP_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout!.on('data', (d) => (output += d));
     child.stderr!.on('data', (d) => (output += d));
     try {
@@ -139,11 +159,15 @@ export async function startRecorder(): Promise<Recorder> {
         if (!p.open) continue;
         await api('POST', '/api/profiles/close', { name: p.name }).catch(() => {});
         const pid = chromePid(p.dir);
-        if (pid && isAlive(pid)) process.kill(pid, 'SIGKILL');
+        if (pid && isAlive(pid)) {
+          process.kill(pid, 'SIGKILL');
+          await waitFor('the killed Chrome to end', () => !isAlive(pid)).catch(() => {});
+        }
       }
       child.kill();
       await exited(child);
-      await rm(root, { recursive: true, force: true });
+      // A Chrome that just quit may still be flushing its folder under load.
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
 }
