@@ -69,7 +69,7 @@ test('lists Tickets from disk with their totals, newest first, across a restart'
     const [pm2, pm1] = list;
     assert.equal(pm2.briefing, briefing);
     assert.equal(pm2.excerpt, 'Please find launch page LP - RTX Spark ready on EN-local, live 10 Oct 09:00.');
-    assert.deepEqual(pm2.totals, { sessions: 0, events: 0, screenshots: 0 });
+    assert.deepEqual(pm2.totals, { sessions: 0, events: 0, screenshots: 0, annotations: 0 });
     assert.equal(pm2.recording, false);
     assert.equal(pm1.excerpt, '');
     assert.equal(pm1.totals.sessions, 1);

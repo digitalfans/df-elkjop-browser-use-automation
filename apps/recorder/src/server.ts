@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { config } from './config.ts';
 import { HttpError, badRequest } from './errors.ts';
-import { assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
+import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
 import { createOrOpenTicket, deleteTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
@@ -37,6 +37,7 @@ const routes: Record<string, Route> = {
   'POST /api/tickets/reveal': (body) => revealTicket(body.ticket),
   'POST /api/start': (body) => start(body.ticket, body.profile),
   'POST /api/stop': () => stop(),
+  'POST /api/annotate': (body) => annotate(body.kind, body.text),
 };
 
 function send(res: http.ServerResponse, status: number, body: unknown) {

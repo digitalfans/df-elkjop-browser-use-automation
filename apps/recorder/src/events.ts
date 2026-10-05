@@ -14,6 +14,8 @@ export type Target = {
 export type EventType = 'start' | 'stop' | 'click' | 'change' | 'edit' | 'key' | 'copy' | 'cut' | 'paste'
   | 'navigate' | 'tab-open' | 'tab-close' | 'annotation';
 
+export type AnnotationKind = 'step' | 'checkpoint' | 'observation';
+
 export type Event = {
   seq: number; // global across all Recording Sessions of the Ticket
   session: number;
@@ -26,7 +28,7 @@ export type Event = {
   value?: string | boolean; // passwords masked
   text?: string; // copy/cut/paste text, or annotation text
   key?: string;
-  kind?: 'step' | 'checkpoint' | 'observation';
+  kind?: AnnotationKind;
   n?: number; // Step number, on step annotations
   screenshot?: string; // relative path
 };

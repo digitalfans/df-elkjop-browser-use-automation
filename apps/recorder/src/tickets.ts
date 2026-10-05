@@ -13,6 +13,7 @@ const exec = promisify(execFile);
 export type SessionSummary = {
   n: number; profile: string; startedAt: string; finishedAt: string; events: number;
   screenshots: number;
+  annotations: number; // Steps, Checkpoints and Observations
   trace: string | null; // relative path of this Recording Session's Playwright trace
   errors: string[]; // what could not be captured, e.g. a screenshot of a tab that closed
 };
@@ -23,7 +24,7 @@ export type TicketSummary = Ticket & {
   dir: string;
   excerpt: string; // the Briefing on one line, shortened
   lastProfile: string | null; // the Work Profile it was last recorded with, which the picker offers first
-  totals: { sessions: number; events: number; screenshots: number };
+  totals: { sessions: number; events: number; screenshots: number; annotations: number };
 };
 
 const TIMELINE = 'timeline.jsonl';
@@ -55,13 +56,13 @@ export function writeTicket(t: Ticket) {
 }
 
 function summary(t: Ticket): TicketSummary {
-  const sum = (k: 'events' | 'screenshots') => t.sessions.reduce((n, s) => n + s[k], 0);
+  const sum = (k: 'events' | 'screenshots' | 'annotations') => t.sessions.reduce((n, s) => n + (s[k] ?? 0), 0);
   return {
     ...t,
     dir: ticketDir(t.ticket),
     excerpt: (t.briefing ?? '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT),
     lastProfile: t.sessions.at(-1)?.profile ?? null,
-    totals: { sessions: t.sessions.length, events: sum('events'), screenshots: sum('screenshots') },
+    totals: { sessions: t.sessions.length, events: sum('events'), screenshots: sum('screenshots'), annotations: sum('annotations') },
   };
 }
 

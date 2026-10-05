@@ -18,6 +18,12 @@
   table { width: 100%; border-collapse: collapse; font-size: 12px; } td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
   code { font-size: 12px; } pre { background: #f6f6f6; padding: 8px; font-size: 12px; overflow: auto; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .annotate { margin-top: 12px; padding: 10px 12px; background: #f7f7fb; border-radius: 6px; }
+  .annotate textarea { min-height: 60px; }
+  .current-step { font-weight: 600; margin-bottom: 4px; }
+  tr.ann td { font-weight: 600; } tr.ann-step td { background: #e8f0fe; } tr.ann-checkpoint td { background: #fdecea; } tr.ann-observation td { background: #fef7e0; }
+  .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -66,11 +72,22 @@
     <button id="stop">■ Finish</button>
     <span id="status"></span>
   </div>
+  <div class="annotate">
+    <div class="current-step" id="current-step"></div>
+    <div class="muted">Annotate while recording. It lands in the timeline right now, with a screenshot of the tab you were last on.</div>
+    <textarea id="note" placeholder="Step: what this step is · Checkpoint: what you want to check before it continues or publishes · Observation: a decision you made from the Briefing, and why"></textarea>
+    <div class="row">
+      <button data-kind="step"><span class="kind kind-step">STEP</span> New step</button>
+      <button data-kind="checkpoint"><span class="kind kind-checkpoint">CHECKPOINT</span> I want to check here</button>
+      <button data-kind="observation"><span class="kind kind-observation">OBSERVATION</span> Decision</button>
+      <span id="note-notice" class="notice"></span>
+    </div>
+  </div>
 </section>
 
 <section>
   <b>Live events</b> (<span id="count">0</span>)
-  <table><thead><tr><th>#</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>screenshot</th></tr></thead><tbody id="events"></tbody></table>
+  <table><thead><tr><th>#</th><th>step</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>screenshot</th></tr></thead><tbody id="events"></tbody></table>
   <pre id="error" hidden></pre>
 </section>
 
@@ -101,6 +118,7 @@ let profiles = [];
 let chosenProfile = null;
 
 function detail(e) {
+  if (e.type === 'annotation') return `<span class="kind kind-${esc(e.kind)}">${esc(e.kind.toUpperCase())}${e.n ? ' ' + e.n : ''}</span> ${esc(e.text)}`;
   const loc = e.target?.locator ? `<code>${esc(e.target.locator)}</code>` : '';
   const extra = e.type === 'navigate' ? e.url : e.key ?? (e.value !== undefined ? `= ${JSON.stringify(e.value)}` : '');
   const text = e.text ? `“${esc(e.text.slice(0, 80))}”` : '';
@@ -137,7 +155,7 @@ function render() {
     <tr class="${t.ticket === selected ? 'selected' : ''}">
       <td><b>${esc(t.ticket)}</b>${t.recording ? ' <span class="rec">● REC</span>' : ''}</td>
       <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
-      <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')}</td>
+      <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')} · ${plural(t.totals.annotations ?? 0, 'annotation')}</td>
       <td>${when(t.updatedAt)}</td>
       <td style="white-space:nowrap">
         <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
@@ -155,7 +173,7 @@ function render() {
     $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
     $('briefing').disabled = $('save-briefing').disabled = mine;
     $('sessions').innerHTML = t.sessions.length
-      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')}`).join('<br>')
+      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')} · ${plural(s.annotations ?? 0, 'annotation')}`).join('<br>')
       : 'none yet';
     const open = profiles.filter((p) => p.open);
     if (mine) chosenProfile = rec.profile;
@@ -172,11 +190,16 @@ function render() {
     $('stop').disabled = !mine || rec.status !== 'recording';
     $('status').innerHTML = mine
       ? `<span class="rec">● recording session ${rec.session} · ${Math.round((Date.now() - rec.startedAt) / 1000)}s</span>` : '';
+    const canAnnotate = mine && rec.status === 'recording';
+    document.querySelectorAll('[data-kind]').forEach((b) => (b.disabled = !canAnnotate));
+    $('note').disabled = !canAnnotate;
+    $('current-step').textContent = !canAnnotate ? 'Start recording to annotate.'
+      : rec.step ? `Now in step ${rec.step.n}: ${rec.step.text}` : 'No step marked yet. Mark the first one with “New step”.';
   }
 
   $('count').textContent = rec.eventCount ?? 0;
   $('events').innerHTML = (rec.events ?? []).slice().reverse().map((e) =>
-    `<tr><td>${e.seq}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td><td>${e.screenshot ? '✓' : ''}</td></tr>`).join('');
+    `<tr class="${e.type === 'annotation' ? `ann ann-${esc(e.kind)}` : ''}"><td>${e.seq}</td><td>${e.step ?? ''}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td><td>${e.screenshot ? '✓' : ''}</td></tr>`).join('');
 }
 
 async function refresh() {
@@ -244,6 +267,14 @@ $('start').onclick = async () => {
   refresh();
 };
 $('stop').onclick = () => api('POST', '/api/stop').then(refresh);
+document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = async () => {
+  const text = $('note').value.trim();
+  if (!text) return flash('note-notice', 'Write what this annotation is about first.');
+  await api('POST', '/api/annotate', { kind: b.dataset.kind, text });
+  $('note').value = '';
+  flash('note-notice', `${b.dataset.kind[0].toUpperCase()}${b.dataset.kind.slice(1)} added.`);
+  refresh();
+}));
 
 refresh();
 setInterval(refresh, 1000);
