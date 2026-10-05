@@ -10,6 +10,10 @@ Automates the Swedish copywriter's workflow of taking a Jira ticket from the Elk
 A Jira issue from the Elkjøp central team asking for content to be localized for the Swedish market. Resolving one Ticket is the unit of work, even when it covers several pieces of content.
 _Avoid_: Task, process, job, request
 
+**Workflow**:
+The kind of work a Ticket asks for, chosen when it is recorded: Enriched Content (the default), Virtual Categories, Campaign page localization, Banner publishing, or one the Copywriter adds.
+_Avoid_: Ticket type, category, task type
+
 **Briefing**:
 The unstructured instructions inside a Ticket (body and comments) that determine what must be done: content location, schedule, copy source, URLs and warnings.
 _Avoid_: Brief, ticket text, prompt

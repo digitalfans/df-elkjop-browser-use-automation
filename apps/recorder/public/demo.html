@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Recorder demo page</title>
+<style>body { font: 14px system-ui; margin: 24px; } label, div { display: block; margin: 8px 0; } [contenteditable] { border: 1px solid #aaa; padding: 6px; min-height: 40px; }</style>
+</head>
+<body>
+<h1>Fake CMS component</h1>
+<p id="source">Upplev nästa generations AI-prestanda med NVIDIA RTX Spark.</p>
+<label>Page title <input name="title"></label>
+<label>Password <input type="password" name="pw"></label>
+<label>Market <select name="market"><option>DK</option><option>SE</option><option>NO</option><option>FI</option></select></label>
+<div>Teaser text <div contenteditable="true" aria-label="Teaser text"></div></div>
+<button>Save</button> <a href="/demo?step=2">Next step</a>
+<iframe srcdoc="<button>Button inside iframe</button>" style="height:60px"></iframe>
+</body>
+</html>

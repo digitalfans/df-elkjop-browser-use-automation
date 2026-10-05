@@ -1,0 +1,63 @@
+# Recorder v1
+
+Local web app the Copywriter uses to record herself resolving Tickets in a Work Profile (see `CONTEXT.md` and ADR 0001). Spec: issue #1. The prototype on branch `prototype/recorder` is the reference implementation.
+
+TypeScript run directly by Node.js ≥ 22.18 (native type stripping), no build step. Playwright is the only runtime dependency.
+
+```sh
+npm install
+npm start        # http://localhost:4317, /demo is a fake CMS page
+npm test         # node:test against a real server process and a headless Google Chrome
+npm run test:slow  # the launcher on a fresh Mac: downloads Node.js and installs from npm (network)
+npm run typecheck
+```
+
+## Installing and updating
+
+For a Copywriter's Mac, follow the step-by-step guide in the [repository README](../../README.md): one Terminal command (`install.sh` at the repo root) downloads the latest `main`, installs the app into `~/Elkjop Recorder`, puts an **Elkjop Recorder** icon on the Desktop and starts it. Running the same command again updates the app and keeps all data, which lives outside the app folder (below).
+
+What the launcher (`Start Recorder.command`) does on each start:
+
+- **Node.js**: it uses the Mac's Node.js if it is recent enough for the app (the `engines` version in `package.json`); otherwise it downloads the pinned Node.js for the Mac's architecture (Apple Silicon or Intel) from nodejs.org into `.runtime/` in the app folder, checks its SHA-256 against the official `SHASUMS256.txt` and stops without installing anything if it does not match or the download fails.
+- **Dependencies**: `npm ci --omit=dev` into `node_modules/` when missing, without downloading any browser (Work Profiles open in her Google Chrome).
+- **Start**: it starts the app in its Terminal window and opens http://localhost:4317 once the server answers; closing that window stops the recorder. Starting it while the app runs only opens the page.
+
+## Configuration
+
+Data lives outside the app folder, so updates keep it:
+
+| Variable         | Default                 | What                                         |
+| ---------------- | ----------------------- | -------------------------------------------- |
+| `RECORDER_PORT`  | `4317`                  | HTTP port                                    |
+| `RECORDINGS_DIR` | `~/elkjop-recordings`   | One folder per Ticket                        |
+| `PROFILES_DIR`   | `~/playwright-profiles` | Work Profiles (shared with the prototype)    |
+| `TRASH_DIR`      | `~/.Trash`              | Where deleted Tickets are moved              |
+| `FIRST_CDP_PORT` | `9222`                  | First debugging port given to a Work Profile |
+| `CHROME_PATH`    | Google Chrome in `/Applications` | Chrome a Work Profile opens in      |
+| `CHROME_ARGS`    | none                    | Extra Chrome flags, space separated (the tests pass `--headless=new`) |
+| `RECORDER_NO_OPEN` | none                  | Launcher only: `1` to not open the page in the browser (the tests) |
+| `RECORDER_NODE_MIRROR` | `https://nodejs.org/dist` | Launcher only: where Node.js and its checksums are downloaded from |
+
+The launcher passes these on to the app, so it can be started on another port or data folders too.
+
+Work Profiles are managed from the page: create one by name (it gets the next free debugging port from `FIRST_CDP_PORT` up), open it as a normal Chrome window, close it as a regular quit (CDP `Browser.close`, so logins are saved). Several can be open at once. The one being recorded cannot be closed. The picker next to Start recording lists only open Work Profiles and defaults to the one last used for the Ticket; each Recording Session summary names its Work Profile.
+
+Tickets are listed from disk, newest first, with their Briefing excerpt, Recording Sessions, events and last update. Typing an existing Ticket ID opens it instead of creating a duplicate. The Briefing can be saved and edited while the Ticket is not recording (a Briefing typed but not saved is saved when recording starts). Continue recording starts a new Recording Session on the same timeline: `seq` keeps counting, screenshots are never overwritten and each session has its own trace. Delete moves the Ticket folder to the Trash after confirmation; Folder opens it in Finder. Editing the Briefing of, or deleting, the Ticket being recorded is refused.
+
+Each Ticket folder holds `ticket.json` (Ticket, Briefing, Recording Session summaries), `timeline.jsonl`, one event per line, appended the moment it is recorded, `screenshots/` (one shortly after each meaningful event, named in the event) and `traces/session-<n>.zip`, the Playwright trace of each Recording Session (open with `npx playwright show-trace`). There is no zip next to it: a Ticket's zip is built only at Export, straight into the export folder.
+
+Workflows: each Ticket has a `workflow`, the kind of work it is: **Enriched Content** (the default), **Virtual Categories**, **Campaign page localization**, **Banner publishing**, or one she adds. The page offers it next to Create or open, shows it in the history and lets her change it in the open Ticket (refused while it records). `GET /api/workflows` returns `{ workflows, default }`; `POST /api/workflows { name }` adds one (refused when blank, longer than 60 characters, or already there ignoring case); `POST /api/tickets { ticket, workflow? }` creates with the default when none is given and keeps the Workflow of an existing Ticket; `POST /api/tickets/workflow { ticket, workflow }` changes it. Added Workflows live in `workflows.json` in the recordings folder, so updates keep them. Tickets recorded before 0.3.0 show "not set" until one is chosen.
+
+Screenshots are JPEG at quality 70, taken at 1 CSS pixel per pixel (so a Retina Mac doesn't store 4× the pixels), and the trace has no screencast filmstrip; together with building zips only at Export this made a Recording ~8× smaller than in 0.1.0.
+
+Recorded events: clicks, form changes, rich-text edits (settled after a 1 s pause in typing), Enter, Tab, Escape and modifier shortcuts, copy, cut and paste with their text, main-frame navigations, tabs opening and closing, in every tab and iframe of the Work Profile, including pages already open when recording starts. Password values are masked. The recorder's own page is not recorded when it is open in the Work Profile; `/demo` is.
+
+Annotations: while recording, the Copywriter adds a **Step** (start of a new step of her process, numbered automatically), a **Checkpoint** (where she would want to verify the automation's work, and what she'd check) or an **Observation** (a decision she made from the Briefing, and why). Each is an `annotation` event with its `kind` and `text` (Steps also carry their number `n`), placed in the timeline at that moment with a screenshot of the tab she was last on, if she has been on one. Every event carries the current Step number in `step`; a new Recording Session starts in the last Step of the previous one and numbering continues. Annotating is refused when not recording, with empty text or with an unknown kind (`POST /api/annotate { kind, text }`). The page shows the current Step and highlights Annotations in the live events; Ticket and Recording Session summaries count Annotations.
+
+Recovery: starting a Recording Session writes an open-session marker, `.open-session.json` in the recordings folder, and Finish removes it once the Recording Session's summary is in `ticket.json`. If the app finds the marker when it starts (after a crash, a closed Terminal or a Mac restart), it closes that Recording Session from the events already on disk before the API answers: its finish time is the last event's time, it is marked `recovered: true`, its trace is usually missing (`trace: null`), and a last line cut off mid-write is dropped from the timeline. The page shows a notice naming the recovered Recording Session until she dismisses it (`recovered` in `GET /api/state`, `POST /api/recovery/dismiss`); undismissed notices are kept in `.recovered.json` across restarts. The Ticket is continued as usual: `seq` and the Step carry on.
+
+Export: the Copywriter sets an export folder once in Settings, the SharePoint/OneDrive folder synced on her Mac (`GET /api/settings`, `POST /api/settings { exportDir }`; an empty value clears it, a relative or missing folder is refused). Settings live in `settings.json` in the recordings folder, so updates keep them. Export on a Ticket (`POST /api/tickets/export { ticket }`) zips the Ticket as it is on disk now straight into that folder as `<ticket>-<UTC time>.zip` (e.g. `PM-32803-20261005T141550Z.zip`, with `-2`, `-3`… if that name is taken), so re-exports never overwrite. The zip is written under a hidden `.partial` name and renamed, so the sync client never picks up half a zip. The Ticket records `lastExport: { at, file }` in `ticket.json` without changing `updatedAt`, and the page shows when it was last exported and whether it changed since. Export is refused while the Ticket records, and when no export folder is set or it is missing or not writable. The app never uploads anything or handles credentials: the sync client moves the file.
+
+Disk: `GET /api/tickets` returns `{ tickets, disk }`. Each Ticket carries its `size` in bytes (its folder, plus a zip left next to it by a version before 0.2.0), and `disk` is `{ total, limit, warning }` in bytes: the total of all Tickets, the warning limit, and whether the total is above it. The limit is `diskLimitGB` in the settings (`POST /api/settings { diskLimitGB }`, a number of GB above 0, 1 GB = 10⁹ bytes as Finder counts; default 5). The page shows each Ticket's size and the total, and above the limit a warning suggesting she export and delete the Tickets she no longer needs. Nothing is ever deleted automatically: the check only reads.
+
+Setup checklist: the page opens on it when the Mac is not ready, and on the recorder when it is; the Setup link always returns to it. `GET /api/health` returns `{ version, healthy, checks }`, each check `{ id, label, help, ok, required, detail, action? }`: Node.js (version and path), Playwright (`action: "install"` when missing), Google Chrome (version and path, or how to install it by hand), zip, the recordings folder (created if missing, must be writable), at least one Work Profile (`action: "create-profile"`) and the export folder, which is shown but not required. `healthy` is true when every required check passes. The server starts without Playwright, which is loaded only when recording starts (refused until then); `POST /api/setup/install` installs the app's runtime dependencies with the npm of the running Node, without any browser download, and recording works right after, without a restart. The checklist checks again every few seconds without wiping what she is typing, and goes to the recorder once everything required is ok. The app version (from `package.json`) is shown in the header and the checklist, and is in `GET /api/health` and `GET /api/state`.

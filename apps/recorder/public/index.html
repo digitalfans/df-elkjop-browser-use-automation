@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket recorder</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; color: #1d1d1f; }
+  h1 { font-size: 18px; } h2 { font-size: 15px; margin: 0 0 8px; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid #888; background: #fff; cursor: pointer; }
+  button.primary { background: #c00; color: #fff; border-color: #c00; } button.danger { color: #c00; border-color: #e5a0a0; }
+  button:disabled { opacity: .4; cursor: default; }
+  input, select { font: inherit; padding: 6px; }
+  textarea { font: inherit; padding: 6px; width: 100%; box-sizing: border-box; min-height: 120px; margin: 6px 0; }
+  tr.selected td { background: #fff7e6; }
+  .ok { color: #080; } .muted { color: #777; font-size: 12px; } .notice { color: #a16207; margin-left: 8px; } .rec { color: #c00; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; } td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+  code { font-size: 12px; } pre { background: #f6f6f6; padding: 8px; font-size: 12px; overflow: auto; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .annotate { margin-top: 12px; padding: 10px 12px; background: #f7f7fb; border-radius: 6px; }
+  .annotate textarea { min-height: 60px; }
+  .current-step { font-weight: 600; margin-bottom: 4px; }
+  tr.ann td { font-weight: 600; } tr.ann-step td { background: #e8f0fe; } tr.ann-checkpoint td { background: #fdecea; } tr.ann-observation td { background: #fef7e0; }
+  .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
+  .recovery, .disk-warning { background: #fff7e6; border-color: #f0c36d; }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; }
+  header nav a { margin-right: 12px; color: #1d4ed8; cursor: pointer; text-decoration: none; } header nav a.active { font-weight: 600; text-decoration: underline; }
+  .check { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eee; } .check .icon { font-weight: 700; width: 20px; flex: none; }
+  .check-ok .icon { color: #080; } .check-bad .icon { color: #c00; } .check-optional .icon { color: #a16207; }
+  .check .label { font-weight: 600; } .check .detail { color: #333; font-size: 13px; margin: 4px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .banner { padding: 10px 14px; border-radius: 6px; margin: 8px 0; } .banner.ok { background: #e7f6ec; color: #14532d; } .banner.bad { background: #fdecea; color: #7f1d1d; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ticket recorder <span class="muted" id="app-version"></span></h1>
+  <nav><a id="nav-recorder">Recorder</a><a id="nav-setup">Setup</a></nav>
+</header>
+
+<div id="setup-view" hidden>
+<section>
+  <h2>Setup checklist</h2>
+  <div id="setup-banner" class="banner"></div>
+  <div class="muted">Everything the recorder needs on this Mac. Fix what is red, then check again. This page checks again by itself.</div>
+  <div id="checks"></div>
+  <div class="row">
+    <button id="recheck">Check again</button>
+    <button id="go-recorder" class="primary" hidden>Go to the recorder</button>
+    <span class="muted">Recorder version <span id="setup-version"></span></span>
+  </div>
+  <pre id="setup-log" hidden></pre>
+</section>
+</div>
+
+<div id="recorder-view" hidden>
+
+<section id="recovery-notice" class="recovery" hidden>
+  <b>A Recording Session was interrupted and has been recovered.</b>
+  <div class="muted">The app or the Mac stopped while recording. Everything captured up to that moment was kept; the last few seconds and the trace may be missing. You can continue the Ticket as usual.</div>
+  <div id="recovered"></div>
+  <div class="row"><button id="dismiss-recovery">Dismiss</button></div>
+</section>
+
+<section>
+  <h2>Work Profiles</h2>
+  <div class="muted">Dedicated Chromes for Elkjøp work. Open one and log in to Jira, SharePoint, Coremedia… once, by hand; it stays logged in. Only open ones can be recorded.</div>
+  <table>
+    <thead><tr><th>Work Profile</th><th>Port</th><th>Status</th><th></th></tr></thead>
+    <tbody id="profiles"></tbody>
+  </table>
+  <div class="row">
+    <input id="new-profile" placeholder="elkjop">
+    <button id="create-profile">Create Work Profile</button>
+    <span id="profile-notice" class="notice"></span>
+  </div>
+</section>
+
+<section>
+  <h2>Settings</h2>
+  <div>Export folder <span class="muted">(the SharePoint/OneDrive folder synced on this Mac; Export puts each Ticket's zip there)</span></div>
+  <div class="row">
+    <input id="export-dir" placeholder="/Users/you/OneDrive - Company/Recordings" style="flex:1; min-width:240px">
+  </div>
+  <div style="margin-top:8px">Disk warning limit <span class="muted">(the page warns when the Recordings use more than this)</span></div>
+  <div class="row">
+    <input id="disk-limit" type="number" min="0.1" step="0.1" style="width:90px"> GB
+  </div>
+  <div class="row">
+    <button id="save-settings">Save</button>
+    <span id="settings-notice" class="notice"></span>
+  </div>
+</section>
+
+<section id="disk-warning" class="disk-warning" hidden>
+  <b>Recordings use <span id="disk-total"></span>, more than the <span id="disk-limit-label"></span> limit.</b>
+  <div class="muted">Export the Tickets you no longer need, check they reached the developer, then delete them here (they go to the Trash; empty it to free the space). Nothing is deleted automatically.</div>
+</section>
+
+<section>
+  <h2>Tickets</h2>
+  <div class="row">
+    <input id="ticket-id" placeholder="PM-32803">
+    <label>Workflow <select id="new-workflow"></select></label>
+    <button id="open-ticket">Create or open</button>
+    <span id="ticket-notice" class="notice"></span>
+  </div>
+  <details class="muted" style="margin:4px 0 8px">
+    <summary>Add a Workflow</summary>
+    <div class="row">
+      <input id="workflow-name" placeholder="e.g. Brand page update">
+      <button id="add-workflow">Add Workflow</button>
+      <span id="workflow-notice" class="notice"></span>
+    </div>
+  </details>
+  <table>
+    <thead><tr><th>Ticket</th><th>Workflow</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th>Size</th><th></th></tr></thead>
+    <tbody id="tickets"></tbody>
+  </table>
+  <div class="muted" style="margin-top:6px">Recordings use <span id="disk-usage"></span> on this Mac (warning above <span id="disk-limit-usage"></span>).</div>
+</section>
+
+<section id="ticket-panel" hidden>
+  <h2>Ticket <span id="ticket-label"></span> <span id="ticket-status"></span></h2>
+  <div class="row">
+    <label>Workflow <select id="ticket-workflow"></select></label>
+    <span id="ticket-workflow-notice" class="notice"></span>
+  </div>
+  <div>Briefing <span class="muted">(paste the Ticket's body and comments here)</span></div>
+  <textarea id="briefing" placeholder="Please find launch page LP - … ready on EN-local…"></textarea>
+  <div class="row">
+    <button id="save-briefing">Save Briefing</button>
+    <span id="briefing-notice" class="notice"></span>
+  </div>
+  <div class="row">
+    <button id="export">Export</button>
+    <span id="export-info" class="muted"></span>
+    <span id="export-notice" class="notice"></span>
+  </div>
+  <div style="margin-top:12px"><b>Recording Sessions</b> <div class="muted" id="sessions"></div></div>
+  <div class="row">
+    Work Profile <select id="profile-select"></select>
+    <button id="start" class="primary">● Start recording</button>
+    <button id="stop">■ Finish</button>
+    <span id="status"></span>
+  </div>
+  <div class="annotate">
+    <div class="current-step" id="current-step"></div>
+    <div class="muted">Annotate while recording. It lands in the timeline right now, with a screenshot of the tab you were last on.</div>
+    <textarea id="note" placeholder="Step: what this step is · Checkpoint: what you want to check before it continues or publishes · Observation: a decision you made from the Briefing, and why"></textarea>
+    <div class="row">
+      <button data-kind="step"><span class="kind kind-step">STEP</span> New step</button>
+      <button data-kind="checkpoint"><span class="kind kind-checkpoint">CHECKPOINT</span> I want to check here</button>
+      <button data-kind="observation"><span class="kind kind-observation">OBSERVATION</span> Decision</button>
+      <span id="note-notice" class="notice"></span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <b>Live events</b> (<span id="count">0</span>)
+  <table><thead><tr><th>#</th><th>step</th><th>t</th><th>tab</th><th>type</th><th>locator / detail</th><th>screenshot</th></tr></thead><tbody id="events"></tbody></table>
+  <pre id="error" hidden></pre>
+</section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) {
+    $('error').hidden = false;
+    $('error').textContent = data.error;
+    throw new Error(data.error);
+  }
+  $('error').hidden = true;
+  return data;
+};
+const flash = (id, msg) => { $(id).textContent = msg; setTimeout(() => ($(id).textContent = ''), 4000); };
+
+const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+const mins = (a, b) => `${Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000))} min`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// Decimal units, as Finder shows them.
+const size = (b) => {
+  const [unit, div] = [['GB', 1e9], ['MB', 1e6], ['KB', 1e3]].find(([, d]) => b >= d) ?? ['bytes', 1];
+  return `${div === 1 ? b : (b / div).toFixed(b / div < 10 ? 1 : 0)} ${unit}`;
+};
+
+let selected = null; // ID of the Ticket open in the panel
+let tickets = [];    // latest /api/tickets
+let disk = {};       // latest disk usage, from /api/tickets
+let rec = {};        // latest /api/state
+let profiles = [];
+let chosenProfile = null;
+let settings = {};
+let workflows = [];  // latest /api/workflows, in order
+let settingsShown = false; // the export folder box is filled once, so polling never overwrites her typing
+
+function detail(e) {
+  if (e.type === 'annotation') return `<span class="kind kind-${esc(e.kind)}">${esc(e.kind.toUpperCase())}${e.n ? ' ' + e.n : ''}</span> ${esc(e.text)}`;
+  const loc = e.target?.locator ? `<code>${esc(e.target.locator)}</code>` : '';
+  const extra = e.type === 'navigate' ? e.url : e.key ?? (e.value !== undefined ? `= ${JSON.stringify(e.value)}` : '');
+  const text = e.text ? `“${esc(e.text.slice(0, 80))}”` : '';
+  return [loc, esc(extra), text].filter(Boolean).join(' ');
+}
+
+// The Briefing box is filled only when a Ticket is opened, so polling never overwrites her typing.
+function select(id) {
+  if (id !== selected) chosenProfile = null;
+  selected = id;
+  $('briefing').value = tickets.find((t) => t.ticket === id)?.briefing ?? '';
+  render();
+}
+
+// When it was last exported, and whether it changed since, so she knows if the developer has the latest.
+function exportedLabel(t) {
+  if (!t.lastExport) return '<span class="muted">never</span>';
+  return `${when(t.lastExport.at)}${t.updatedAt > t.lastExport.at ? ' <span class="notice">changed since</span>' : ''}`;
+}
+
+function render() {
+  const recording = rec.status !== 'idle';
+  if (recording && rec.ticket && selected !== rec.ticket) select(rec.ticket);
+
+  $('profiles').innerHTML = profiles.map((p) => {
+    const busy = recording && rec.profile === p.name;
+    return `<tr>
+      <td><b>${esc(p.name)}</b>${busy ? ' <span class="rec">● REC</span>' : ''}<div class="muted">${esc(p.dir)}</div></td>
+      <td>${p.port}</td>
+      <td>${p.open ? '<span class="ok">open</span>' : '<span class="muted">closed</span>'}</td>
+      <td style="white-space:nowrap">
+        <button data-pact="open" data-name="${esc(p.name)}" ${p.open ? 'disabled' : ''}>Open</button>
+        <button data-pact="close" data-name="${esc(p.name)}" ${!p.open || busy ? 'disabled' : ''}
+          title="${busy ? 'Being recorded: finish the Recording Session first' : 'Quits this Chrome; logins are saved'}">Close</button>
+      </td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No Work Profiles yet.</td></tr>';
+
+  const recovered = rec.recovered ?? [];
+  $('recovery-notice').hidden = !recovered.length;
+  $('recovered').innerHTML = recovered.map((r) =>
+    `${esc(r.ticket)} · session ${r.session} · ${plural(r.events, 'event')} kept · stopped ${when(r.finishedAt)}`).join('<br>');
+
+  $('open-ticket').disabled = recording;
+  $('tickets').innerHTML = tickets.map((t) => `
+    <tr class="${t.ticket === selected ? 'selected' : ''}">
+      <td><b>${esc(t.ticket)}</b>${t.recording ? ' <span class="rec">● REC</span>' : ''}</td>
+      <td>${t.workflow ? esc(t.workflow) : '<span class="muted">not set</span>'}</td>
+      <td>${esc(t.excerpt) || '<span class="muted">none</span>'}</td>
+      <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')} · ${plural(t.totals.annotations ?? 0, 'annotation')}</td>
+      <td>${when(t.updatedAt)}</td>
+      <td>${exportedLabel(t)}</td>
+      <td style="white-space:nowrap">${size(t.size)}</td>
+      <td style="white-space:nowrap">
+        <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
+        <button data-act="reveal" data-id="${esc(t.ticket)}">Folder</button>
+        <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}
+          title="${t.recording ? 'Being recorded: finish the Recording Session first' : 'Moves it to the Trash'}">Delete</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+
+  $('disk-usage').textContent = size(disk.total);
+  $('disk-limit-usage').textContent = $('disk-limit-label').textContent = size(disk.limit);
+  $('disk-total').textContent = size(disk.total);
+  $('disk-warning').hidden = !disk.warning;
+
+  const t = tickets.find((x) => x.ticket === selected);
+  $('ticket-panel').hidden = !t;
+  if (t) {
+    const mine = recording && rec.ticket === t.ticket;
+    $('ticket-label').textContent = t.ticket;
+    $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
+    $('briefing').disabled = $('save-briefing').disabled = mine;
+    // Rebuilt only when it isn't being used, so polling never closes the menu under her.
+    if (document.activeElement !== $('ticket-workflow')) {
+      const choices = t.workflow && !workflows.includes(t.workflow) ? [...workflows, t.workflow] : workflows;
+      $('ticket-workflow').innerHTML = (t.workflow ? '' : '<option value="">Choose…</option>')
+        + choices.map((w) => `<option ${w === t.workflow ? 'selected' : ''}>${esc(w)}</option>`).join('');
+    }
+    $('ticket-workflow').disabled = mine;
+    $('ticket-workflow').title = mine ? 'Being recorded: finish the Recording Session first' : '';
+    $('export').disabled = t.recording || !settings.exportDir;
+    $('export').title = t.recording ? 'Being recorded: finish the Recording Session first'
+      : !settings.exportDir ? 'Set an export folder in the settings first' : `Copies its zip to ${settings.exportDir}`;
+    $('export-info').innerHTML = t.lastExport
+      ? `Last exported ${exportedLabel(t)} as ${esc(t.lastExport.file.split('/').pop())}`
+      : !settings.exportDir ? 'Set an export folder in the settings to export.' : 'Not exported yet.';
+    $('sessions').innerHTML = t.sessions.length
+      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')} · ${plural(s.annotations ?? 0, 'annotation')}${s.recovered ? ' · <span class="notice">interrupted, recovered</span>' : ''}`).join('<br>')
+      : 'none yet';
+    const open = profiles.filter((p) => p.open);
+    if (mine) chosenProfile = rec.profile;
+    // Default to the one last used for this Ticket, while it is open; otherwise the first open one.
+    else if (!open.some((p) => p.name === chosenProfile)) {
+      chosenProfile = open.some((p) => p.name === t.lastProfile) ? t.lastProfile : open[0]?.name ?? null;
+    }
+    $('profile-select').innerHTML = open.length
+      ? open.map((p) => `<option ${p.name === chosenProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')
+      : '<option>Open a Work Profile first</option>';
+    $('profile-select').disabled = recording || !open.length;
+    $('start').textContent = t.sessions.length ? `● Continue recording · session ${t.sessions.length + 1}` : '● Start recording';
+    $('start').disabled = recording || !chosenProfile;
+    $('stop').disabled = !mine || rec.status !== 'recording';
+    $('status').innerHTML = mine
+      ? `<span class="rec">● recording session ${rec.session} · ${Math.round((Date.now() - rec.startedAt) / 1000)}s</span>` : '';
+    const canAnnotate = mine && rec.status === 'recording';
+    document.querySelectorAll('[data-kind]').forEach((b) => (b.disabled = !canAnnotate));
+    $('note').disabled = !canAnnotate;
+    $('current-step').textContent = !canAnnotate ? 'Start recording to annotate.'
+      : rec.step ? `Now in step ${rec.step.n}: ${rec.step.text}` : 'No step marked yet. Mark the first one with “New step”.';
+  }
+
+  $('count').textContent = rec.eventCount ?? 0;
+  $('events').innerHTML = (rec.events ?? []).slice().reverse().map((e) =>
+    `<tr class="${e.type === 'annotation' ? `ann ann-${esc(e.kind)}` : ''}"><td>${e.seq}</td><td>${e.step ?? ''}</td><td>${(e.t / 1000).toFixed(1)}s</td><td>${e.tab ?? ''}</td><td>${e.type}</td><td>${detail(e)}</td><td>${e.screenshot ? '✓' : ''}</td></tr>`).join('');
+}
+
+async function refresh() {
+  let listing, wf;
+  [rec, listing, profiles, settings, wf] = await Promise.all([
+    api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles'), api('GET', '/api/settings'), api('GET', '/api/workflows')]);
+  ({ tickets, disk } = listing);
+  setWorkflows(wf);
+  if (!settingsShown) {
+    $('export-dir').value = settings.exportDir ?? '';
+    $('disk-limit').value = settings.diskLimitGB;
+    settingsShown = true;
+  }
+  if (selected && !tickets.some((t) => t.ticket === selected)) selected = null;
+  render();
+}
+
+// The new-Ticket picker keeps her choice across polls; it starts on the default Workflow.
+function setWorkflows(wf) {
+  const changed = wf.workflows.join('\n') !== workflows.join('\n');
+  workflows = wf.workflows;
+  if (!changed || document.activeElement === $('new-workflow')) return;
+  const keep = $('new-workflow').value || wf.default;
+  $('new-workflow').innerHTML = workflows.map((w) => `<option ${w === keep ? 'selected' : ''}>${esc(w)}</option>`).join('');
+}
+
+$('open-ticket').onclick = async () => {
+  const id = $('ticket-id').value.trim();
+  if (!id) return;
+  const t = await api('POST', '/api/tickets', { ticket: id, workflow: $('new-workflow').value });
+  $('ticket-id').value = '';
+  flash('ticket-notice', t.existed ? `${t.ticket} already exists (${t.workflow ?? 'no Workflow'}), opened it.` : `${t.ticket} created as ${t.workflow}.`);
+  await refresh();
+  select(t.ticket);
+};
+$('ticket-id').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('open-ticket').click();
+});
+$('tickets').onclick = async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === 'open') select(id);
+  if (b.dataset.act === 'reveal') api('POST', '/api/tickets/reveal', { ticket: id }).catch(() => {});
+  if (b.dataset.act === 'delete' && confirm(`Delete ${id} and all its Recording Sessions?\nIt will be moved to the Trash.`)) {
+    await api('POST', '/api/tickets/delete', { ticket: id }).catch(() => {});
+    refresh();
+  }
+};
+$('ticket-workflow').onchange = async () => {
+  if (!$('ticket-workflow').value) return;
+  const t = await api('POST', '/api/tickets/workflow', { ticket: selected, workflow: $('ticket-workflow').value }).catch(() => null);
+  if (t) flash('ticket-workflow-notice', `Saved as ${t.workflow}.`);
+  $('ticket-workflow').blur();
+  refresh();
+};
+$('add-workflow').onclick = async () => {
+  const name = $('workflow-name').value.trim();
+  if (!name) return;
+  const wf = await api('POST', '/api/workflows', { name }).catch(() => null);
+  if (!wf) return;
+  $('workflow-name').value = '';
+  setWorkflows(wf);
+  $('new-workflow').value = wf.workflows.at(-1);
+  flash('workflow-notice', `Added ${wf.workflows.at(-1)}.`);
+};
+$('workflow-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('add-workflow').click();
+});
+$('save-briefing').onclick = async () => {
+  const t = await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  $('briefing').value = t.briefing ?? '';
+  flash('briefing-notice', 'Saved.');
+  refresh();
+};
+$('save-settings').onclick = async () => {
+  const had = settings.exportDir;
+  settings = await api('POST', '/api/settings', { exportDir: $('export-dir').value, diskLimitGB: $('disk-limit').value });
+  $('export-dir').value = settings.exportDir ?? '';
+  $('disk-limit').value = settings.diskLimitGB;
+  flash('settings-notice', had && !settings.exportDir ? 'Saved. Export folder cleared.' : 'Saved.');
+  refresh();
+};
+for (const id of ['export-dir', 'disk-limit']) $(id).addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('save-settings').click();
+});
+$('export').onclick = async () => {
+  $('export').disabled = true;
+  try {
+    const t = await api('POST', '/api/tickets/export', { ticket: selected });
+    flash('export-notice', `Exported to ${t.lastExport.file}`);
+  } catch {
+    // The error is shown under the live events.
+  } finally {
+    refresh();
+  }
+};
+$('profile-select').onchange = (e) => (chosenProfile = e.target.value);
+$('profiles').onclick = async (e) => {
+  const b = e.target.closest('button[data-pact]');
+  if (!b) return;
+  b.disabled = true;
+  b.textContent = b.dataset.pact === 'open' ? 'Opening…' : 'Closing…';
+  await api('POST', `/api/profiles/${b.dataset.pact}`, { name: b.dataset.name }).catch(() => {});
+  refresh();
+};
+$('create-profile').onclick = async () => {
+  const name = $('new-profile').value.trim();
+  if (!name) return;
+  await api('POST', '/api/profiles', { name });
+  $('new-profile').value = '';
+  flash('profile-notice', `${name} created. Open it and log in to the Elkjøp tools once.`);
+  refresh();
+};
+$('new-profile').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('create-profile').click();
+});
+$('start').onclick = async () => {
+  // A Briefing typed but not saved is kept: recording locks the box, so save it first.
+  const t = tickets.find((x) => x.ticket === selected);
+  if ($('briefing').value.trim() !== (t?.briefing ?? '')) {
+    await api('POST', '/api/tickets/briefing', { ticket: selected, briefing: $('briefing').value });
+  }
+  await api('POST', '/api/start', { ticket: selected, profile: chosenProfile });
+  refresh();
+};
+$('dismiss-recovery').onclick = () => api('POST', '/api/recovery/dismiss').then(refresh);
+$('stop').onclick = () => api('POST', '/api/stop').then(refresh);
+document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = async () => {
+  const text = $('note').value.trim();
+  if (!text) return flash('note-notice', 'Write what this annotation is about first.');
+  await api('POST', '/api/annotate', { kind: b.dataset.kind, text });
+  $('note').value = '';
+  flash('note-notice', `${b.dataset.kind[0].toUpperCase()}${b.dataset.kind.slice(1)} added.`);
+  refresh();
+}));
+
+// --- Setup checklist ---
+
+let view = null;         // 'setup' | 'recorder'
+let setupBusy = false;   // an install or a create is running: the checklist is not redrawn under it
+let lastHealth = '';     // the checklist is redrawn only when something changed
+let wasHealthy = null;   // on the checklist, the Mac turning healthy takes her to the recorder
+
+const setupLog = (text) => { $('setup-log').hidden = !text; $('setup-log').textContent = text ?? ''; };
+
+function showVersion(v) {
+  $('app-version').textContent = v ? `v${v}` : '';
+  $('setup-version').textContent = v ?? '';
+}
+
+// Redrawing keeps what she is typing in the Work Profile name box, and her cursor in it.
+function renderChecks(h) {
+  const key = JSON.stringify(h);
+  if (key === lastHealth) return;
+  lastHealth = key;
+  const input = $('setup-profile');
+  const typed = input?.value;
+  const focused = input && document.activeElement === input ? [input.selectionStart, input.selectionEnd] : null;
+  $('checks').innerHTML = h.checks.map((c) => `
+    <div class="check check-${c.ok ? 'ok' : c.required ? 'bad' : 'optional'}">
+      <div class="icon">${c.ok ? '✓' : c.required ? '✗' : '–'}</div>
+      <div>
+        <div class="label">${esc(c.label)}${c.required ? '' : ' <span class="muted">(optional)</span>'}</div>
+        <div class="muted">${esc(c.help)}</div>
+        <div class="detail">${esc(c.detail)}</div>
+        ${c.action === 'install' ? '<button data-setup="install">Install Playwright</button>' : ''}
+        ${c.action === 'create-profile' ? '<div class="row"><input id="setup-profile" value="elkjop"> <button data-setup="create-profile">Create profile</button></div>' : ''}
+      </div>
+    </div>`).join('');
+  const again = $('setup-profile');
+  if (again && typed !== undefined) {
+    again.value = typed;
+    if (focused) {
+      again.focus();
+      again.setSelectionRange(...focused);
+    }
+  }
+}
+
+async function refreshSetup() {
+  if (view !== 'setup' || setupBusy) return;
+  const h = await api('GET', '/api/health').catch(() => null);
+  if (!h || view !== 'setup' || setupBusy) return;
+  showVersion(h.version);
+  const missing = h.checks.filter((c) => c.required && !c.ok).length;
+  $('setup-banner').className = `banner ${h.healthy ? 'ok' : 'bad'}`;
+  $('setup-banner').textContent = h.healthy
+    ? (wasHealthy === false ? 'All set. This Mac is ready to record. Going to the recorder…' : 'All set. This Mac is ready to record.')
+    : `${missing} item${missing === 1 ? '' : 's'} need${missing === 1 ? 's' : ''} attention before you can record.`;
+  $('go-recorder').hidden = !h.healthy;
+  renderChecks(h);
+  if (h.healthy && wasHealthy === false) setTimeout(() => view === 'setup' && show('recorder'), 1500);
+  wasHealthy = h.healthy;
+}
+
+function show(next) {
+  view = next;
+  $('setup-view').hidden = next !== 'setup';
+  $('recorder-view').hidden = next !== 'recorder';
+  $('nav-setup').className = next === 'setup' ? 'active' : '';
+  $('nav-recorder').className = next === 'recorder' ? 'active' : '';
+  if (next === 'setup') {
+    wasHealthy = null;
+    return refreshSetup();
+  }
+  return refresh();
+}
+
+$('checks').onclick = async (e) => {
+  const b = e.target.closest('button[data-setup]');
+  if (!b) return;
+  b.disabled = true;
+  setupBusy = true;
+  try {
+    if (b.dataset.setup === 'install') {
+      b.textContent = 'Installing… (about a minute)';
+      setupLog('npm install…');
+      const out = await api('POST', '/api/setup/install');
+      setupLog(out.log || 'Installed.');
+    }
+    if (b.dataset.setup === 'create-profile') {
+      const p = await api('POST', '/api/profiles', { name: $('setup-profile').value.trim() });
+      setupLog(`${p.name} created. Open it from the recorder and log in to the Elkjøp tools once, by hand.`);
+    }
+  } catch (err) {
+    setupLog(err.message);
+    b.disabled = false;
+    if (b.dataset.setup === 'install') b.textContent = 'Install Playwright';
+  } finally {
+    setupBusy = false;
+  }
+  refreshSetup();
+};
+$('checks').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'setup-profile') e.target.closest('.check').querySelector('[data-setup]').click();
+});
+$('recheck').onclick = () => refreshSetup();
+$('go-recorder').onclick = () => show('recorder');
+$('nav-setup').onclick = () => show('setup');
+$('nav-recorder').onclick = () => show('recorder');
+
+// A Mac that is not ready opens on the checklist; a healthy one goes straight to the recorder.
+api('GET', '/api/health')
+  .then((h) => { showVersion(h.version); return show(h.healthy ? 'recorder' : 'setup'); })
+  .catch(() => show('setup'));
+setInterval(() => view === 'recorder' && refresh(), 1000);
+setInterval(refreshSetup, 3000);
+</script>
+</body>
+</html>
