@@ -24,11 +24,19 @@
   tr.ann td { font-weight: 600; } tr.ann-step td { background: #e8f0fe; } tr.ann-checkpoint td { background: #fdecea; } tr.ann-observation td { background: #fef7e0; }
   .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
+  .recovery { background: #fff7e6; border-color: #f0c36d; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <h1>Ticket recorder</h1>
+
+<section id="recovery-notice" class="recovery" hidden>
+  <b>A Recording Session was interrupted and has been recovered.</b>
+  <div class="muted">The app or the Mac stopped while recording. Everything captured up to that moment was kept; the last few seconds and the trace may be missing. You can continue the Ticket as usual.</div>
+  <div id="recovered"></div>
+  <div class="row"><button id="dismiss-recovery">Dismiss</button></div>
+</section>
 
 <section>
   <h2>Work Profiles</h2>
@@ -150,6 +158,11 @@ function render() {
       </td></tr>`;
   }).join('') || '<tr><td colspan="4" class="muted">No Work Profiles yet.</td></tr>';
 
+  const recovered = rec.recovered ?? [];
+  $('recovery-notice').hidden = !recovered.length;
+  $('recovered').innerHTML = recovered.map((r) =>
+    `${esc(r.ticket)} · session ${r.session} · ${plural(r.events, 'event')} kept · stopped ${when(r.finishedAt)}`).join('<br>');
+
   $('open-ticket').disabled = recording;
   $('tickets').innerHTML = tickets.map((t) => `
     <tr class="${t.ticket === selected ? 'selected' : ''}">
@@ -173,7 +186,7 @@ function render() {
     $('ticket-status').innerHTML = mine ? '<span class="rec">● recording</span>' : '';
     $('briefing').disabled = $('save-briefing').disabled = mine;
     $('sessions').innerHTML = t.sessions.length
-      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')} · ${plural(s.annotations ?? 0, 'annotation')}`).join('<br>')
+      ? t.sessions.map((s) => `#${s.n} ${when(s.startedAt)} · ${mins(s.startedAt, s.finishedAt)} · ${esc(s.profile)} · ${plural(s.events, 'event')} · ${plural(s.annotations ?? 0, 'annotation')}${s.recovered ? ' · <span class="notice">interrupted, recovered</span>' : ''}`).join('<br>')
       : 'none yet';
     const open = profiles.filter((p) => p.open);
     if (mine) chosenProfile = rec.profile;
@@ -266,6 +279,7 @@ $('start').onclick = async () => {
   await api('POST', '/api/start', { ticket: selected, profile: chosenProfile });
   refresh();
 };
+$('dismiss-recovery').onclick = () => api('POST', '/api/recovery/dismiss').then(refresh);
 $('stop').onclick = () => api('POST', '/api/stop').then(refresh);
 document.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = async () => {
   const text = $('note').value.trim();

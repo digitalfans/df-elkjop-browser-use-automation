@@ -16,6 +16,7 @@ export type SessionSummary = {
   annotations: number; // Steps, Checkpoints and Observations
   trace: string | null; // relative path of this Recording Session's Playwright trace
   errors: string[]; // what could not be captured, e.g. a screenshot of a tab that closed
+  recovered?: true; // interrupted (crash, closed Terminal, restart) and closed from the events on disk at the next start
 };
 export type Ticket = { ticket: string; briefing: string | null; createdAt: string; updatedAt: string; sessions: SessionSummary[] };
 
@@ -145,6 +146,15 @@ export async function rebuildZip(id: string) {
   } finally {
     fs.rmSync(partial, { force: true });
   }
+}
+
+// A crash in the middle of an append can leave a last line without its newline; it is dropped, so the
+// timeline stays one whole event per line and the next Recording Session appends after it cleanly.
+export function repairTimeline(id: string) {
+  const file = path.join(ticketDir(id), TIMELINE);
+  if (!fs.existsSync(file)) return;
+  const text = fs.readFileSync(file, 'utf8');
+  if (text && !text.endsWith('\n')) fs.truncateSync(file, Buffer.byteLength(text.slice(0, text.lastIndexOf('\n') + 1)));
 }
 
 export function readTimeline(id: string): Event[] {

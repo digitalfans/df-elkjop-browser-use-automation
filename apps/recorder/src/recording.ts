@@ -8,6 +8,7 @@ import { config } from './config.ts';
 import { badRequest, conflict } from './errors.ts';
 import type { AnnotationKind, Event, EventType } from './events.ts';
 import { appendEvent, readTicket, readTimeline, rebuildZip, ticketDir, writeTicket } from './tickets.ts';
+import { clearOpen, markOpen, recoveryNotices } from './recovery.ts';
 import { getProfile, isOpen } from './work-profiles.ts';
 
 const LOGGER = fs.readFileSync(new URL('./page-logger.js', import.meta.url), 'utf8');
@@ -69,6 +70,7 @@ export function recordingState() {
     step: session?.step ?? null,
     eventCount: session?.count ?? 0,
     events: session?.recent ?? [],
+    recovered: recoveryNotices(),
   };
 }
 
@@ -166,6 +168,8 @@ export async function start(ticketId: string | undefined, profileName: string | 
       screenshots: 0, pending: new Set(), errors: [],
     };
     session = s;
+    // From here on, a crash leaves this marker behind and the next start recovers the Recording Session.
+    markOpen({ ticket: s.ticket, profile: s.profile, n: s.n, startedAt: new Date(s.startedAt).toISOString() });
     // Background for the developer: filmstrip, DOM snapshots, network and console.
     try {
       await context.tracing.start({ screenshots: true, snapshots: true });
@@ -181,6 +185,7 @@ export async function start(ticketId: string | undefined, profileName: string | 
     context.on('page', (page) => attach(s, page, true));
   } catch (err) {
     await browser?.close().catch(() => {});
+    if (session) clearOpen();
     session = null;
     attached = null;
     recordedTicket = null;
@@ -232,6 +237,7 @@ export async function stop() {
       screenshots: s.screenshots, annotations: s.annotations, trace, errors: s.errors,
     });
     writeTicket(t);
+    clearOpen();
     // Built after ticket.json is final, so the zip holds this Recording Session's summary too.
     try {
       await rebuildZip(s.ticket);

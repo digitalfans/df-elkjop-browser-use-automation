@@ -4,6 +4,7 @@ import http from 'node:http';
 import { config } from './config.ts';
 import { HttpError, badRequest } from './errors.ts';
 import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
+import { dismissRecoveryNotices, recoverInterrupted } from './recovery.ts';
 import { createOrOpenTicket, deleteTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
@@ -38,6 +39,7 @@ const routes: Record<string, Route> = {
   'POST /api/start': (body) => start(body.ticket, body.profile),
   'POST /api/stop': () => stop(),
   'POST /api/annotate': (body) => annotate(body.kind, body.text),
+  'POST /api/recovery/dismiss': () => dismissRecoveryNotices(),
 };
 
 function send(res: http.ServerResponse, status: number, body: unknown) {
@@ -73,4 +75,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// An interrupted Recording Session is closed before anything can start a new one.
+await recoverInterrupted();
 server.listen(config.port, '127.0.0.1', () => console.log(`Recorder on http://localhost:${config.port}`));
