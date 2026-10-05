@@ -6,7 +6,7 @@ import { HttpError, badRequest } from './errors.ts';
 import { annotate, assertNotRecorded, assertTicketNotRecorded, isRecordingTicket, recordingState, start, stop } from './recording.ts';
 import { dismissRecoveryNotices, recoverInterrupted } from './recovery.ts';
 import { readSettings, saveSettings } from './settings.ts';
-import { createOrOpenTicket, deleteTicket, exportTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
+import { createOrOpenTicket, deleteTicket, diskUsage, exportTicket, listTickets, revealTicket, saveBriefing } from './tickets.ts';
 import { closeProfile, createProfile, listProfiles, openProfile } from './work-profiles.ts';
 
 type Body = Record<string, string | undefined>;
@@ -26,7 +26,10 @@ const routes: Record<string, Route> = {
     assertNotRecorded(body.name);
     return closeProfile(body.name);
   },
-  'GET /api/tickets': () => listTickets().map((t) => ({ ...t, recording: isRecordingTicket(t.ticket) })),
+  'GET /api/tickets': () => {
+    const tickets = listTickets();
+    return { tickets: tickets.map((t) => ({ ...t, recording: isRecordingTicket(t.ticket) })), disk: diskUsage(tickets) };
+  },
   'POST /api/tickets': (body) => createOrOpenTicket(trimmed(body.ticket)),
   'POST /api/tickets/briefing': (body) => {
     assertTicketNotRecorded(body.ticket);

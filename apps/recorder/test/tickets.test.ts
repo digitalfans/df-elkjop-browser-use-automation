@@ -44,7 +44,7 @@ async function record(ticket: string, profile: string, act: () => Promise<void>)
 const tickets = async () => {
   const res = await recorder.api('GET', '/api/tickets');
   assert.equal(res.status, 200, res.body.error);
-  return res.body as any[];
+  return res.body.tickets as any[];
 };
 
 const zipEntries = (zip: string) => execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' }).split('\n').filter(Boolean);

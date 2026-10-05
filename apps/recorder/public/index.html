@@ -24,7 +24,7 @@
   tr.ann td { font-weight: 600; } tr.ann-step td { background: #e8f0fe; } tr.ann-checkpoint td { background: #fdecea; } tr.ann-observation td { background: #fef7e0; }
   .kind { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .kind-step { background: #c6dafc; } .kind-checkpoint { background: #f6c6c1; } .kind-observation { background: #fde68a; }
-  .recovery { background: #fff7e6; border-color: #f0c36d; }
+  .recovery, .disk-warning { background: #fff7e6; border-color: #f0c36d; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -57,9 +57,20 @@
   <div>Export folder <span class="muted">(the SharePoint/OneDrive folder synced on this Mac; Export puts each Ticket's zip there)</span></div>
   <div class="row">
     <input id="export-dir" placeholder="/Users/you/OneDrive - Company/Recordings" style="flex:1; min-width:240px">
+  </div>
+  <div style="margin-top:8px">Disk warning limit <span class="muted">(the page warns when the Recordings use more than this)</span></div>
+  <div class="row">
+    <input id="disk-limit" type="number" min="0.1" step="0.1" style="width:90px"> GB
+  </div>
+  <div class="row">
     <button id="save-settings">Save</button>
     <span id="settings-notice" class="notice"></span>
   </div>
+</section>
+
+<section id="disk-warning" class="disk-warning" hidden>
+  <b>Recordings use <span id="disk-total"></span>, more than the <span id="disk-limit-label"></span> limit.</b>
+  <div class="muted">Export the Tickets you no longer need, check they reached the developer, then delete them here (they go to the Trash; empty it to free the space). Nothing is deleted automatically.</div>
 </section>
 
 <section>
@@ -70,9 +81,10 @@
     <span id="ticket-notice" class="notice"></span>
   </div>
   <table>
-    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th></th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Briefing</th><th>Recorded</th><th>Updated</th><th>Exported</th><th>Size</th><th></th></tr></thead>
     <tbody id="tickets"></tbody>
   </table>
+  <div class="muted" style="margin-top:6px">Recordings use <span id="disk-usage"></span> on this Mac (warning above <span id="disk-limit-usage"></span>).</div>
 </section>
 
 <section id="ticket-panel" hidden>
@@ -133,9 +145,15 @@ const flash = (id, msg) => { $(id).textContent = msg; setTimeout(() => ($(id).te
 const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 const mins = (a, b) => `${Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000))} min`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// Decimal units, as Finder shows them.
+const size = (b) => {
+  const [unit, div] = [['GB', 1e9], ['MB', 1e6], ['KB', 1e3]].find(([, d]) => b >= d) ?? ['bytes', 1];
+  return `${div === 1 ? b : (b / div).toFixed(b / div < 10 ? 1 : 0)} ${unit}`;
+};
 
 let selected = null; // ID of the Ticket open in the panel
 let tickets = [];    // latest /api/tickets
+let disk = {};       // latest disk usage, from /api/tickets
 let rec = {};        // latest /api/state
 let profiles = [];
 let chosenProfile = null;
@@ -194,13 +212,19 @@ function render() {
       <td>${plural(t.totals.sessions, 'session')} · ${plural(t.totals.events, 'event')} · ${plural(t.totals.annotations ?? 0, 'annotation')}</td>
       <td>${when(t.updatedAt)}</td>
       <td>${exportedLabel(t)}</td>
+      <td style="white-space:nowrap">${size(t.size)}</td>
       <td style="white-space:nowrap">
         <button data-act="open" data-id="${esc(t.ticket)}" ${recording ? 'disabled' : ''}>Open</button>
         <button data-act="reveal" data-id="${esc(t.ticket)}">Folder</button>
         <button data-act="delete" data-id="${esc(t.ticket)}" class="danger" ${t.recording ? 'disabled' : ''}
           title="${t.recording ? 'Being recorded: finish the Recording Session first' : 'Moves it to the Trash'}">Delete</button>
       </td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">No Tickets yet. Type a Ticket ID above.</td></tr>';
+
+  $('disk-usage').textContent = size(disk.total);
+  $('disk-limit-usage').textContent = $('disk-limit-label').textContent = size(disk.limit);
+  $('disk-total').textContent = size(disk.total);
+  $('disk-warning').hidden = !disk.warning;
 
   const t = tickets.find((x) => x.ticket === selected);
   $('ticket-panel').hidden = !t;
@@ -246,10 +270,13 @@ function render() {
 }
 
 async function refresh() {
-  [rec, tickets, profiles, settings] = await Promise.all([
+  let listing;
+  [rec, listing, profiles, settings] = await Promise.all([
     api('GET', '/api/state'), api('GET', '/api/tickets'), api('GET', '/api/profiles'), api('GET', '/api/settings')]);
+  ({ tickets, disk } = listing);
   if (!settingsShown) {
     $('export-dir').value = settings.exportDir ?? '';
+    $('disk-limit').value = settings.diskLimitGB;
     settingsShown = true;
   }
   if (selected && !tickets.some((t) => t.ticket === selected)) selected = null;
@@ -286,12 +313,14 @@ $('save-briefing').onclick = async () => {
   refresh();
 };
 $('save-settings').onclick = async () => {
-  settings = await api('POST', '/api/settings', { exportDir: $('export-dir').value });
+  const had = settings.exportDir;
+  settings = await api('POST', '/api/settings', { exportDir: $('export-dir').value, diskLimitGB: $('disk-limit').value });
   $('export-dir').value = settings.exportDir ?? '';
-  flash('settings-notice', settings.exportDir ? 'Saved.' : 'Export folder cleared.');
+  $('disk-limit').value = settings.diskLimitGB;
+  flash('settings-notice', had && !settings.exportDir ? 'Saved. Export folder cleared.' : 'Saved.');
   refresh();
 };
-$('export-dir').addEventListener('keydown', (e) => {
+for (const id of ['export-dir', 'disk-limit']) $(id).addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('save-settings').click();
 });
 $('export').onclick = async () => {

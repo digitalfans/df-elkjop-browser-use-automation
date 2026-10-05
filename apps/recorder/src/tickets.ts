@@ -32,7 +32,13 @@ export type TicketSummary = Ticket & {
   excerpt: string; // the Briefing on one line, shortened
   lastProfile: string | null; // the Work Profile it was last recorded with, which the picker offers first
   totals: { sessions: number; events: number; screenshots: number; annotations: number };
+  size: number; // bytes on disk: the Ticket folder and its zip
 };
+
+// How much disk the Recordings use, and whether that is above the limit set in the settings (bytes).
+export type DiskUsage = { total: number; limit: number; warning: boolean };
+
+const GB = 1e9; // as Finder counts
 
 const TIMELINE = 'timeline.jsonl';
 const TICKET = 'ticket.json';
@@ -72,7 +78,29 @@ function summary(t: Ticket): TicketSummary {
     excerpt: (t.briefing ?? '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT),
     lastProfile: t.sessions.at(-1)?.profile ?? null,
     totals: { sessions: t.sessions.length, events: sum('events'), screenshots: sum('screenshots'), annotations: sum('annotations') },
+    size: bytes(ticketDir(t.ticket)) + bytes(zipFile(t.ticket)),
   };
+}
+
+// Bytes of every file under a folder, or of the file itself. Recording may add or remove files
+// meanwhile (a zip being swapped in); whatever is gone by the time it is counted counts as 0.
+function bytes(p: string): number {
+  const st = fs.lstatSync(p, { throwIfNoEntry: false });
+  if (!st?.isDirectory()) return st?.size ?? 0;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(p);
+  } catch {
+    return 0;
+  }
+  return entries.reduce((n, name) => n + bytes(path.join(p, name)), 0);
+}
+
+// Only reads: the warning suggests exporting and deleting Tickets, it never deletes anything itself.
+export function diskUsage(tickets: TicketSummary[]): DiskUsage {
+  const total = tickets.reduce((n, t) => n + t.size, 0);
+  const limit = Math.round(readSettings().diskLimitGB * GB);
+  return { total, limit, warning: total > limit };
 }
 
 // Every Ticket on disk, the most recently updated first.

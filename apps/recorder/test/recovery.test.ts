@@ -65,7 +65,7 @@ test('a Recording Session killed mid-recording is recovered on the next start, a
   assert.equal(Date.parse(s.finishedAt) - Date.parse(s.startedAt), before.at(-1).t, 'finished at the last event');
   assert.equal((await state()).status, 'idle');
 
-  const listed = (await ok('GET', '/api/tickets')).find((t: any) => t.ticket === 'PM-1');
+  const listed = (await ok('GET', '/api/tickets')).tickets.find((t: any) => t.ticket === 'PM-1');
   assert.equal(listed.totals.sessions, 1);
   assert.equal(listed.totals.events, before.length);
   assert.equal(listed.recording, false);

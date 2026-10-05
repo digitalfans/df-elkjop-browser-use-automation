@@ -102,7 +102,7 @@ test('exports the Ticket current contents as a new zip each time, and records wh
 
   // The Ticket records its last export, on disk and in the history.
   assert.deepEqual(recorder.ticketJson('PM-1').lastExport, first.body.lastExport);
-  const listed = (await recorder.api('GET', '/api/tickets')).body.find((t: any) => t.ticket === 'PM-1');
+  const listed = (await recorder.api('GET', '/api/tickets')).body.tickets.find((t: any) => t.ticket === 'PM-1');
   assert.deepEqual(listed.lastExport, first.body.lastExport);
 
   // A re-export, even within the same second, never overwrites the first.
@@ -116,7 +116,7 @@ test('exports the Ticket current contents as a new zip each time, and records wh
   assert.deepEqual(recorder.ticketJson('PM-1').lastExport, second.body.lastExport);
 
   await recorder.restart();
-  const afterRestart = (await recorder.api('GET', '/api/tickets')).body.find((t: any) => t.ticket === 'PM-1');
+  const afterRestart = (await recorder.api('GET', '/api/tickets')).body.tickets.find((t: any) => t.ticket === 'PM-1');
   assert.deepEqual(afterRestart.lastExport, second.body.lastExport);
 });
 

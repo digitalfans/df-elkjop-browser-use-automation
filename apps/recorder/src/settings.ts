@@ -8,9 +8,11 @@ import { badRequest } from './errors.ts';
 export type Settings = {
   // The folder her SharePoint/OneDrive client syncs; Export copies Ticket zips into it.
   exportDir: string | null;
+  // Above this many GB of Recordings the page warns her; nothing is ever deleted automatically.
+  diskLimitGB: number;
 };
 
-const DEFAULTS: Settings = { exportDir: null };
+const DEFAULTS: Settings = { exportDir: null, diskLimitGB: 5 };
 
 const settingsFile = () => path.join(config.recordingsDir, 'settings.json');
 
@@ -23,10 +25,11 @@ export function readSettings(): Settings {
   }
 }
 
-// Only the fields given change. An empty export folder clears it.
-export function saveSettings(changes: { exportDir?: unknown }): Settings {
+// Only the fields given change, and nothing changes when one is refused. An empty export folder clears it.
+export function saveSettings(changes: { exportDir?: unknown; diskLimitGB?: unknown }): Settings {
   const settings = readSettings();
   if (changes.exportDir !== undefined) settings.exportDir = checkExportDir(changes.exportDir);
+  if (changes.diskLimitGB !== undefined) settings.diskLimitGB = checkDiskLimit(changes.diskLimitGB);
   const file = settingsFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(`${file}.tmp`, JSON.stringify(settings, null, 2));
@@ -43,4 +46,11 @@ function checkExportDir(value: unknown): string | null {
   dir = path.resolve(dir);
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw badRequest(`Export folder ${dir} does not exist`);
   return dir;
+}
+
+// A positive number of GB, given as a number or as the text typed in the page.
+function checkDiskLimit(value: unknown): number {
+  const gb = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  if (!Number.isFinite(gb) || gb <= 0) throw badRequest('Disk warning limit: a number of GB above 0, e.g. 5');
+  return gb;
 }

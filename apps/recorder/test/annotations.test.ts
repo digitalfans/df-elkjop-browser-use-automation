@@ -78,7 +78,7 @@ test('records each Annotation kind with its text, and tags every event with the 
 
   const session = recorder.ticketJson('PM-1').sessions[0];
   assert.equal(session.annotations, 4);
-  const listed = (await recorder.api('GET', '/api/tickets')).body.find((t: any) => t.ticket === 'PM-1');
+  const listed = (await recorder.api('GET', '/api/tickets')).body.tickets.find((t: any) => t.ticket === 'PM-1');
   assert.equal(listed.totals.annotations, 4);
   assert.equal(listed.sessions[0].annotations, 4);
   assert.equal((await recorder.api('GET', '/api/state')).body.step, null, 'no current Step once idle');
@@ -121,7 +121,7 @@ test('a second Recording Session starts in the last Step and continues numbering
     ['annotation', 'step', 3, 3],
     ['stop', undefined, undefined, 3],
   ]);
-  const listed = (await recorder.api('GET', '/api/tickets')).body.find((t: any) => t.ticket === 'PM-1');
+  const listed = (await recorder.api('GET', '/api/tickets')).body.tickets.find((t: any) => t.ticket === 'PM-1');
   assert.deepEqual(listed.sessions.map((s: any) => s.annotations), [2, 2]);
   assert.equal(listed.totals.annotations, 4);
 });
