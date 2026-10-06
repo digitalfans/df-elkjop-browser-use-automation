@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { launchChrome, startRecorder, waitFor, type Chrome, type Recorder } from './harness.ts';
 
@@ -145,4 +148,25 @@ test('opens an existing Ticket instead of duplicating it', async () => {
   assert.equal((await recorder.api('POST', '/api/tickets', { ticket: 'PM-3' })).body.existed, false);
   assert.equal((await recorder.api('POST', '/api/tickets', { ticket: 'PM-3' })).body.existed, true);
   assert.equal((await recorder.api('POST', '/api/tickets', { ticket: '../etc' })).status, 400);
+});
+
+test('leaves her downloads to Chrome: saved under their own name where Chrome saves them', async () => {
+  const { status, body: profile } = await recorder.api('POST', '/api/profiles', { name: 'elkjop' });
+  assert.equal(status, 200, profile.error);
+  const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'recorder-downloads-'));
+  fs.mkdirSync(path.join(profile.dir, 'Default'), { recursive: true });
+  fs.writeFileSync(path.join(profile.dir, 'Default', 'Preferences'),
+    JSON.stringify({ download: { default_directory: downloads, prompt_for_download: false } }));
+  const chrome = await launchChrome(profile);
+  chromes.push(chrome);
+  await recorder.api('POST', '/api/tickets', { ticket: 'PM-1' });
+  const started = await recorder.api('POST', '/api/start', { ticket: 'PM-1', profile: 'elkjop' });
+  assert.equal(started.status, 200, started.body.error);
+
+  const page = await chrome.context.newPage();
+  await page.setContent('<a href="data:text/plain,hello" download="brief.txt">Download</a>');
+  await page.getByText('Download').click();
+  await waitFor('brief.txt in her downloads folder', () => fs.existsSync(path.join(downloads, 'brief.txt')));
+  assert.equal(fs.readFileSync(path.join(downloads, 'brief.txt'), 'utf8'), 'hello');
+  fs.rmSync(downloads, { recursive: true, force: true });
 });

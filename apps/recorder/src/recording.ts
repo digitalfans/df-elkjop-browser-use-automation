@@ -158,7 +158,9 @@ export async function start(ticketId: string | undefined, profileName: string | 
   try {
     if (!(await isOpen(profile.port))) throw conflict(`Work Profile ${profile.name} is not open`);
     const { chromium } = await loadPlaywright();
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
+    // noDefaults: without it Playwright takes over her downloads, saving them under a GUID name in a
+    // temp folder it deletes on disconnect, so the file shows in Chrome but never opens.
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`, { noDefaults: true });
     const context: BrowserContext = browser.contexts()[0];
     fs.mkdirSync(path.join(ticketDir(t.ticket), 'screenshots'), { recursive: true });
     const prior = readTimeline(t.ticket);
