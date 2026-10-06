@@ -207,7 +207,7 @@ export async function launchChrome(profile: { dir: string; port: number }): Prom
   ], { stdio: 'ignore' });
   await waitFor(`Chrome on port ${profile.port}`, async () =>
     (await fetch(`http://127.0.0.1:${profile.port}/json/version`).catch(() => null))?.ok);
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`, { noDefaults: true });
   return {
     browser,
     context: browser.contexts()[0],
@@ -221,7 +221,7 @@ export async function launchChrome(profile: { dir: string; port: number }): Prom
 
 // Drives a Work Profile the server opened, through its own CDP connection, like the Copywriter by hand.
 export async function connectChrome(profile: { port: number }) {
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`);
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${profile.port}`, { noDefaults: true });
   return { browser, context: browser.contexts()[0], close: () => browser.close().catch(() => {}) };
 }
 
